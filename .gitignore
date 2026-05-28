@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+data/investigations/*.json
+.env
+data/usage.json
+data/usage.tmp
+__pycache__/
+*.pyc

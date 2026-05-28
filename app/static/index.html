@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RepoTrace</title>
+  <style>
+    :root{--bg:#070b12;--panel:#101827;--panel2:#08111f;--panel3:#06101b;--muted:#91a4bd;--text:#e9f1ff;--accent:#6ee7ff;--blue:#159cff;--bad:#ff6b6b;--warn:#ffd166;--ok:#72ef9a;--line:rgba(255,255,255,.09)}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:radial-gradient(circle at top,#10203a,#070b12 42%);color:var(--text)}
+    .wrap{max-width:1420px;margin:0 auto;padding:32px 22px}.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px}h1{font-size:44px;margin:0;letter-spacing:-1.4px}.tag{color:var(--muted);margin-top:8px;font-size:17px}.ver{color:var(--muted);font-size:13px}.card{background:rgba(16,24,39,.94);border:1px solid rgba(110,231,255,.14);border-radius:20px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.28);margin-bottom:18px}.inputrow{display:grid;grid-template-columns:1fr 110px 130px 135px;gap:12px}.bulkrow{display:grid;grid-template-columns:1fr 110px 130px 120px;gap:12px}.diffrow{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 130px;gap:10px}.historyrow{display:grid;grid-template-columns:1fr 1fr 1.7fr 1fr 110px 130px;gap:10px}.savedrow{display:grid;grid-template-columns:1fr 150px;gap:12px}input,textarea,button{border-radius:14px;border:1px solid rgba(255,255,255,.12);background:#08111f;color:var(--text);padding:13px;font-size:14px}textarea{width:100%;min-height:100px;resize:vertical}button{background:linear-gradient(135deg,#1378ff,#00d4ff);font-weight:800;cursor:pointer;color:white;border:0}.secondary{background:#0b2033;border:1px solid rgba(110,231,255,.22)}button:hover{filter:brightness(1.08)}.hidden{display:none}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.widegrid{display:grid;grid-template-columns:1.12fr .88fr;gap:18px}.thirdgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}.dash{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.metric{background:radial-gradient(circle at top right,rgba(110,231,255,.08),transparent 34%),var(--panel2);border:1px solid var(--line);border-radius:18px;padding:16px;min-height:92px}.metric span{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}.metric b{font-size:25px;display:block;margin-top:8px}.section-title{display:flex;justify-content:space-between;align-items:center;gap:12px}.actionbar{display:flex;gap:10px;flex-wrap:wrap}.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#0b2033;margin:3px;border:1px solid rgba(110,231,255,.14);font-size:12px}.muted{color:var(--muted)}.small{font-size:12px}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.risk-HIGH{color:var(--bad)}.risk-MEDIUM{color:var(--warn)}.risk-LOW{color:var(--ok)}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.loader{animation:pulse 1s infinite;color:var(--accent)}@keyframes pulse{50%{opacity:.35}}a{color:var(--accent);text-decoration:none}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}pre{white-space:pre-wrap;word-break:break-word;max-height:460px;overflow:auto;background:#07101b;padding:14px;border-radius:14px;border:1px solid var(--line)}.kv{display:grid;grid-template-columns:190px 1fr;border-bottom:1px solid var(--line);padding:10px 0;font-size:14px}.kv b{color:#f2f7ff}.ioc-grid{display:grid;grid-template-columns:1fr;gap:12px}.ioc-card{background:#08111f;border:1px solid var(--line);border-radius:16px;padding:13px}.ioc-head{display:flex;justify-content:space-between;margin-bottom:10px}.ioc-list{display:flex;flex-wrap:wrap;gap:7px}.ioc-item{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:#050d18;border:1px solid rgba(110,231,255,.14);border-radius:999px;padding:6px 9px;max-width:100%;overflow:hidden;text-overflow:ellipsis}.empty{color:var(--muted);padding:10px;background:#08111f;border:1px dashed var(--line);border-radius:14px}.treebox{background:#06101b;border:1px solid var(--line);border-radius:16px;padding:12px;max-height:560px;overflow:auto}.tree-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;line-height:1.55;white-space:nowrap}.tree-dir{color:#ffd166}.tree-file{color:#dcecff}.tree-meta{color:#91a4bd}.link-detail{margin:8px 0 12px 12px;padding:10px;border-left:2px solid rgba(110,231,255,.35);background:#07101b;border-radius:12px}.risk-factor{display:flex;justify-content:space-between;gap:10px;margin:8px 0;padding:10px;background:#08111f;border:1px solid var(--line);border-radius:12px}.diff-hit{background:rgba(255,107,107,.18);border-left:3px solid var(--bad);display:block;padding-left:6px}.diff-add{color:#72ef9a}.diff-del{color:#ff9b9b}.mini-btn,.mini-link{display:inline-flex;padding:5px 8px;border-radius:9px;background:#0b2033;border:1px solid rgba(110,231,255,.18);margin:2px}.timeline{border-left:2px solid rgba(110,231,255,.25);padding-left:14px}.event{position:relative;margin:12px 0;padding:12px;border-radius:14px;background:#08111f;border:1px solid var(--line)}.event:before{content:"";position:absolute;left:-22px;top:16px;width:12px;height:12px;border-radius:50%;background:var(--accent)}.sev-high:before{background:var(--bad)}.sev-warning:before,.sev-notice:before{background:var(--warn)}.sev-info:before{background:var(--accent)}.tabs{position:sticky;top:0;z-index:30;display:flex;gap:10px;flex-wrap:wrap;margin:0 0 16px 0;padding:10px;background:rgba(7,11,18,.92);backdrop-filter:blur(12px);border:1px solid rgba(110,231,255,.12);border-radius:18px}.tabbtn{background:#0b2033;border:1px solid rgba(110,231,255,.22);padding:10px 13px}.tabbtn.active{background:linear-gradient(135deg,#1378ff,#00d4ff)}.tab-panel{display:none}.tab-panel.active{display:block}.compact-card{max-height:720px;overflow:auto}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}.graph-shell{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px}.graphbox{height:520px;background:#06101b;border:1px solid var(--line);border-radius:18px;overflow:auto;position:relative;padding:12px}.graph-stage{position:relative;min-width:1020px;height:455px}.graph-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.graph-edge{stroke:rgba(110,231,255,.32);stroke-width:1.4;transition:.15s ease}.graph-edge.dim{stroke:rgba(110,231,255,.06)}.graph-edge.related{stroke:rgba(110,231,255,.78);stroke-width:2.2}.graph-edge-label{font-size:10px;fill:#91a4bd;opacity:.75}.graph-edge-label.dim{opacity:.08}.graph-edge-label.related{fill:#e9f1ff;opacity:1}.graph-node{position:absolute;transform:translate(-50%,-50%);padding:8px 11px;border-radius:14px;border:1px solid rgba(110,231,255,.30);background:#0b2033;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;cursor:pointer;box-shadow:0 8px 26px rgba(0,0,0,.25);transition:.15s ease}.graph-node:hover{filter:brightness(1.18);transform:translate(-50%,-50%) scale(1.04);z-index:5}.graph-node.active{outline:2px solid var(--accent);z-index:6}.graph-node.dim{opacity:.28}.graph-node.related{box-shadow:0 0 0 2px rgba(110,231,255,.25),0 10px 30px rgba(0,0,0,.35)}.graph-node.repo{background:#0b2033;color:#e9f1ff}.graph-node.domain,.graph-node.ipv4,.graph-node.url{background:rgba(255,107,107,.16);border-color:rgba(255,107,107,.42);color:#ffd6d6}.graph-node.email{background:rgba(255,209,102,.14);border-color:rgba(255,209,102,.38);color:#fff1c7}.graph-node.contributor{background:rgba(114,239,154,.13);border-color:rgba(114,239,154,.36);color:#d6ffe2}.graph-side{background:#08111f;border:1px solid var(--line);border-radius:18px;padding:14px;max-height:520px;overflow:auto}.graph-detail{margin-top:12px;background:#08111f;border:1px solid var(--line);border-radius:16px;padding:13px}.graph-legend,.graph-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px 0}.graph-legend .pill{cursor:default}.graph-filter-note{padding:10px;border-radius:12px;background:#07101b;border:1px solid var(--line);margin:10px 0}.cluster-card{padding:10px;margin:8px 0;background:#07101b;border:1px solid var(--line);border-radius:14px}.cluster-card b{color:#fff}.anomaly{border-left:3px solid var(--warn);padding-left:10px;margin:8px 0}.event{cursor:pointer}.event.selected{outline:2px solid var(--accent);box-shadow:0 0 0 3px rgba(110,231,255,.1)}.syncbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.graph-node.file{background:rgba(196,181,253,.13);border-color:rgba(196,181,253,.38);color:#efe7ff}.quick-jump{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.card h3{margin-top:0}.watch-card{background:#07101b;border:1px solid var(--line);border-radius:16px;padding:14px;margin:10px 0}.watch-list{max-height:280px;overflow:auto}.change-row{display:grid;grid-template-columns:160px 1fr;gap:10px;padding:8px;border-bottom:1px solid var(--line)}.change-row:last-child{border-bottom:0}.delta-up{color:var(--ok)}.delta-down{color:var(--bad)}.watch-summary{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}.pay-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px}.pay-modal{width:min(520px,96vw);background:#101827;border:1px solid rgba(110,231,255,.25);border-radius:22px;padding:22px;box-shadow:0 30px 90px rgba(0,0,0,.6)}.pay-modal.show,.pay-modal-backdrop.show{display:flex}.pay-qr{display:flex;justify-content:center;margin:16px 0}.pay-qr img{max-width:260px;border-radius:18px;border:1px solid var(--line);background:#fff;padding:10px}.pay-actions{display:flex;gap:10px;flex-wrap:wrap}.paywall-box{margin-top:10px;padding:12px;border:1px solid rgba(255,209,102,.35);background:rgba(255,209,102,.08);border-radius:14px}.pay-search-btn{display:inline-flex;align-items:center;gap:8px;padding:10px 13px;border-radius:12px;background:linear-gradient(135deg,#1378ff,#00d4ff);font-weight:800;color:#fff;text-decoration:none;cursor:pointer;margin-top:8px}@media(max-width:1100px){.watch-summary{grid-template-columns:1fr 1fr}}
+    @media(max-width:1100px){.dash,.grid,.widegrid,.thirdgrid,.inputrow,.diffrow,.historyrow,.graph-shell{grid-template-columns:1fr}.hero{display:block}}
+  </style>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div><h1>RepoTrace</h1><div class="tag">GitHub-first repository intelligence + public-ready OSINT radar</div></div>
+    <div class="ver"><span class="pill">v0.22.1 RepoTrace</span><span id="token" class="pill muted">Checking token…</span></div>
+  </div>
+
+  <div class="card" id="publicLaunchCard">
+    <div class="section-title">
+      <h3>Public Launch Controls</h3>
+      <span class="pill">usage limits · verified payments · search counter · admin stats</span>
+    </div>
+    <div id="usagePanel" class="dash"><div class="loader">Loading usage status…</div></div>
+    <div class="grid" style="margin-top:12px">
+      <div id="paymentPanel" class="ioc-card"><div class="muted">Payment/UPI placeholder loads from .env.</div></div>
+      <div class="ioc-card">
+        <h4>Admin Panel</h4>
+        <p class="muted small">Protected by HTTP Basic auth. Set ADMIN_USERNAME and ADMIN_PASSWORD in .env.</p>
+        <div class="grid"><input id="adminUser" placeholder="admin username" value="admin"/><input id="adminPass" placeholder="admin password" type="password"/></div>
+        <div style="margin-top:10px"><button class="secondary" onclick="loadAdminUsage()">Load Admin Usage</button></div>
+        <div id="adminOut" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="inputrow">
+      <input id="url" placeholder="https://github.com/owner/repo or https://gitlab.com/group/project" />
+      <input id="maxFiles" type="number" value="120" min="1" max="300" title="Max files" />
+      <input id="maxCommits" type="number" value="60" min="1" max="120" title="Max commits" />
+      <button onclick="analyze()">Analyze</button>
+    </div>
+    <div id="status" class="muted small" style="margin-top:10px">Ready.</div>
+  </div>
+
+  <div class="card">
+    <div class="section-title"><h3>Product Mode</h3><span class="pill">Multi-repo scanner · Bulk scanning · Saved investigations</span></div>
+    <div class="grid">
+      <div>
+        <h4>Bulk / Multi-Repo Scan</h4>
+        <p class="muted small">Paste one GitHub repo URL per line. RepoTrace will scan them concurrently and show cross-repo links.</p>
+        <textarea id="bulkUrls" placeholder="https://github.com/owner/repo
+https://gitlab.com/group/project"></textarea>
+        <div class="bulkrow" style="margin-top:10px">
+          <input id="bulkFiles" type="number" value="80" min="1" max="220" title="Max files per repo"/>
+          <input id="bulkCommits" type="number" value="35" min="1" max="100" title="Max commits per repo"/>
+          <input id="bulkConc" type="number" value="3" min="1" max="6" title="Concurrency"/>
+          <button onclick="bulkScan()">Bulk Scan</button>
+        </div>
+      </div>
+      <div>
+        <h4>Saved Investigations</h4>
+        <p class="muted small">Save the currently analyzed repo and reload your investigation index later.</p>
+        <div class="savedrow">
+          <input id="saveTitle" placeholder="Optional investigation title"/>
+          <button class="secondary" onclick="saveInvestigation()">Save Current</button>
+        </div>
+        <div style="margin-top:10px"><button class="secondary" onclick="listInvestigations()">Refresh Saved Investigations</button></div>
+        <div id="savedOut" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="card">
+    <div class="section-title">
+      <h3>RepoTrace Radar</h3>
+      <span class="pill">User/org scanner · watch mode · delta intelligence · email alerts</span>
+    </div>
+    <div class="grid">
+      <div>
+        <h4>GitHub User / Org Scanner</h4>
+        <p class="muted small">Scan public repositories for a GitHub user or organization and rank them by risk. This stays RepoTrace-only: repo intelligence, not payload triage.</p>
+        <div class="bulkrow">
+          <input id="acctName" placeholder="user or org, e.g. socketio" />
+          <input id="acctMaxRepos" type="number" value="30" min="1" max="200" title="Max repos"/>
+          <input id="acctConc" type="number" value="3" min="1" max="6" title="Concurrency"/>
+          <button onclick="accountScan()">Scan Account</button>
+        </div>
+        <div class="bulkrow" style="margin-top:10px">
+          <select id="acctType" style="border-radius:14px;border:1px solid rgba(255,255,255,.12);background:#08111f;color:var(--text);padding:13px">
+            <option value="auto">Auto-detect</option>
+            <option value="user">User</option>
+            <option value="org">Organization</option>
+          </select>
+          <input id="acctFiles" type="number" value="50" min="1" max="220" title="Max files/repo"/>
+          <input id="acctCommits" type="number" value="20" min="1" max="100" title="Max commits/repo"/>
+          <span></span>
+        </div>
+      </div>
+      <div>
+        <h4>Advanced Watch Mode</h4>
+        <p class="muted small">Create a baseline snapshot, then run again later to detect new commits, new/deleted files, new domains/IPs, and risk changes. Optional email alert fires only when changes are found.</p>
+        <input id="watchTarget" placeholder="GitHub repo URL OR user/org name" style="width:100%;margin-bottom:10px"/>
+        <div class="bulkrow">
+          <input id="watchEmail" placeholder="optional alert email"/>
+          <input id="watchMaxRepos" type="number" value="30" min="1" max="200" title="Max repos"/>
+          <input id="watchConc" type="number" value="3" min="1" max="6" title="Concurrency"/>
+          <button onclick="watchTarget()">Run Watch</button>
+        </div>
+      </div>
+    </div>
+    <div id="radarOut" style="margin-top:14px"></div>
+  </div>
+
+  <div id="bulkResults" class="hidden">
+    <div class="card"><h3>Bulk Scan Results</h3><div id="bulkOut"></div></div>
+  </div>
+
+  <div id="results" class="hidden">
+    <div class="card">
+      <div class="section-title"><h3>Analyst Dashboard</h3><div id="scanMode" class="pill">Adaptive scan pending</div></div>
+      <div id="dashboard" class="dash"></div>
+      <div id="adaptive" class="muted small" style="margin-top:10px"></div>
+      <div class="quick-jump">
+        <button class="tabbtn active" data-tab="overview" onclick="showTab('overview')">Overview</button>
+        <button class="tabbtn" data-tab="files" onclick="showTab('filesTab')">Files + Tree</button>
+        <button class="tabbtn" data-tab="history" onclick="showTab('historyTab')">History + Timeline</button>
+        <button class="tabbtn" data-tab="diff" onclick="showTab('diffTab')">Diff + Compare</button>
+        <button class="tabbtn" data-tab="product" onclick="document.querySelector('.card:nth-of-type(2)').scrollIntoView({behavior:'smooth'})">Product Mode</button>
+      </div>
+    </div>
+
+    <div id="overview" class="tab-panel active">
+      <div class="widegrid">
+        <div class="card compact-card">
+          <div class="section-title"><h3>Snapshot</h3><div class="actionbar"><button onclick="downloadJson()">Export JSON</button><button onclick="downloadReport()">Download MD Report</button><button onclick="downloadHtmlReport()">Download HTML Report</button><button class="secondary" onclick="saveInvestigation()">Save</button></div></div>
+          <div id="snapshot"></div>
+        </div>
+        <div class="card compact-card"><h3>Risk</h3><div id="risk"></div></div>
+      </div>
+      <div class="grid">
+        <div class="card compact-card"><h3>Languages / Contributors / Releases</h3><div id="repoExtra"></div></div>
+        <div class="card compact-card"><h3>Suspicious Findings</h3><div id="findings"></div></div>
+      </div>
+      <div class="grid">
+        <div class="card compact-card"><h3>Infrastructure Links</h3><div id="infra"></div></div>
+        <div class="card compact-card"><h3>IOCs & Secrets</h3><div id="iocs"></div></div>
+      </div>
+      <div class="card compact-card">
+        <div class="section-title"><h3>Repository Attack Surface Graph</h3><span class="pill">Single-repo pivot view</span></div>
+        <div class="graph-shell">
+          <div>
+            <div id="repoGraph" class="graphbox"></div>
+          </div>
+          <div id="repoGraphDetail" class="graph-side"><div class="muted">Analyze a repo, then click a node to pivot.</div></div>
+        </div>
+        <div id="repoGraphIntel" class="graph-detail"><div class="muted">Graph clusters and anomaly watch will appear after analysis.</div></div>
+      </div>
+    </div>
+
+    <div id="filesTab" class="tab-panel">
+      <div class="grid">
+        <div class="card compact-card"><h3>Repository Hierarchy Tree</h3><div class="muted small">Full Git tree returned by GitHub API. Large repos may be truncated by GitHub.</div><div id="repoTree" class="treebox" style="margin-top:12px"></div></div>
+        <div class="card compact-card"><h3>Files Analyzed</h3><div id="files"></div></div>
+      </div>
+    </div>
+
+    <div id="historyTab" class="tab-panel">
+      <div class="card" id="historyCard">
+        <h3>File-Level History</h3>
+        <p class="muted small">Click any file’s History button below, or manually enter a path.</p>
+        <div class="historyrow">
+          <input id="histOwner" placeholder="owner" />
+          <input id="histRepo" placeholder="repo" />
+          <input id="histPath" placeholder="path/to/file.py" />
+          <input id="histBranch" placeholder="branch" />
+          <input id="histMax" type="number" value="30" min="1" max="100" />
+          <button onclick="fileHistory()">Get History</button>
+        </div>
+        <div id="historyOut" style="margin-top:14px"></div>
+      </div>
+      <div class="card compact-card"><h3>Recent Commits / Change History</h3><div id="commits"></div></div>
+      <div class="card compact-card">
+        <div class="section-title"><h3>Forensic Timeline</h3><div class="actionbar"><button onclick="loadTimeline()">Build Timeline</button></div></div>
+        <div id="timelineOut" class="muted">Click Build Timeline after analysis.</div>
+      </div>
+    </div>
+
+    <div id="diffTab" class="tab-panel">
+      <div class="card">
+        <h3>Compare Commits / Tags / Branches</h3>
+        <div class="diffrow"><input id="cmpOwner" placeholder="owner"/><input id="cmpRepo" placeholder="repo"/><input id="cmpBase" placeholder="base SHA/tag/branch"/><input id="cmpHead" placeholder="head SHA/tag/branch"/><button onclick="compare()">Compare</button></div>
+        <div id="diffOut" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
+        <h3>Repo Comparison Mode</h3>
+        <p class="muted small">Compare two repos for shared domains, emails, contributors, risk posture, and similar file paths.</p>
+        <div class="grid"><input id="repoAUrl" placeholder="https://github.com/owner/repo A"/><input id="repoBUrl" placeholder="https://github.com/owner/repo B"/></div>
+        <div style="margin-top:10px"><button onclick="compareRepos()">Compare Repos</button></div>
+        <div id="repoCompareOut" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </div>
+
+<div id="paymentModalBackdrop" class="pay-modal-backdrop" onclick="if(event.target.id==='paymentModalBackdrop') closePaymentModal()">
+  <div class="pay-modal">
+    <div class="section-title"><h3>Pay for Extra Search</h3><button class="secondary" onclick="closePaymentModal()">Close</button></div>
+    <div id="paymentModalBody"><span class="loader">Generating QR…</span></div>
+  </div>
+</div>
+<script>
+let lastData=null;
+let currentBulkData=null;
+let currentGraphPairs=[];
+let currentBulkFilter=null;
+const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const fmtDate=(v)=>{ if(!v) return '-'; try{return new Date(v).toISOString().slice(0,10)}catch(e){return v} };
+function arr(a){return (a&&a.length)?a.map(x=>`<span class="pill">${esc(x)}</span>`).join(''):'<span class="muted">None</span>'}
+function asArray(x){return Array.isArray(x)?x:(x?Object.values(x).flat():[])}
+function normalizeList(data){
+  if(Array.isArray(data)) return data;
+  if(data && typeof data==='object') return Object.entries(data).map(([k,v])=>`${k} (${v})`);
+  return [];
+}
+function normalizeCount(data){
+  if(Array.isArray(data)) return data.length;
+  if(data && typeof data==='object') return Object.keys(data).length;
+  return 0;
+}
+function metric(label,val,cls=''){return `<div class="metric"><span>${esc(label)}</span><b class="${cls}">${esc(val)}</b></div>`}
+function showTab(id){document.querySelectorAll('.tab-panel').forEach(x=>x.classList.remove('active'));document.getElementById(id)?.classList.add('active');document.querySelectorAll('.tabbtn').forEach(x=>x.classList.remove('active'));const key=id==='filesTab'?'files':id==='historyTab'?'history':id==='diffTab'?'diff':'overview';document.querySelector(`.tabbtn[data-tab="${key}"]`)?.classList.add('active');}
+function adminAuthHeaders(){
+  const raw=localStorage.getItem('repotrace_admin_basic')||'';
+  return raw?{'Authorization':'Basic '+raw}:{};
+}
+function adminFetchHeaders(extra={}){return {...extra,...adminAuthHeaders()};}
+async function post(url,body){
+  const r=await fetch(url,{method:'POST',headers:adminFetchHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+  const ct=r.headers.get('content-type')||'';
+  const d=ct.includes('json')?await r.json():await r.text();
+  if(!r.ok){
+    let msg='Request failed';
+    let detail=null;
+    if(typeof d==='string') msg=d;
+    else if(d.detail){detail=d.detail; msg=typeof d.detail==='string'?d.detail:(d.detail.message||JSON.stringify(d.detail));}
+    const err=new Error(msg); err.status=r.status; err.detail=detail; err.payload=d; throw err;
+  }
+  refreshUsage();
+  return d
+}
+async function tokenStatus(){try{const r=await fetch('/api/token-status');const d=await r.json();let t=d.github_token_configured?'GitHub token configured':'No GitHub token';let rl=d.rate_limit?` · ${d.rate_limit.remaining}/${d.rate_limit.limit}`:'';let gl=d.gitlab_token_configured?' · GitLab token configured':' · GitLab public mode';document.getElementById('token').textContent=t+rl+gl}catch(e){document.getElementById('token').textContent='Token check failed'}} tokenStatus();
+async function refreshUsage(){
+  try{
+    const r=await fetch('/api/usage-status',{headers:adminFetchHeaders()}); const d=await r.json();
+    const isAdmin=!!d.admin_authenticated;
+    const rem=isAdmin?'Unlimited (Admin)':(d.public_mode?`${d.remaining_today}/${d.free_searches_per_day}`:'unlimited');
+    const modeLabel=isAdmin?'ADMIN':(d.public_mode?'ON':'OFF');
+    const access=d.access_mode==='admin_unlimited'?'Admin unlimited':(d.public_mode?'Public limited':'Local unlimited');
+    document.getElementById('usagePanel').innerHTML=[
+      metric('Public Mode',modeLabel,isAdmin?'ok':(d.public_mode?'warn':'ok')),
+      metric('Access',access,isAdmin?'ok':''),
+      metric('Used Today',isAdmin?'not counted':(d.used_today??0)),
+      metric('Remaining',rem,isAdmin?'ok':''),
+      metric('Burst Limit',isAdmin?'bypassed':`${d.rate_limit_per_minute}/min`),
+      metric('Price/Search',`₹${(d.payment||{}).price_per_search_inr||2}`),
+      metric('Paid Credits',d.paid_credits??0,'ok')
+    ].join('');
+    const pay=d.payment||{};
+    lastUsagePayment=pay;
+    const amount=esc(pay.price_per_search_inr||'2');
+    const payButton=`<div style="margin-top:12px"><a class="pay-search-btn" onclick="openPaymentModal(${amount})">Search ₹${amount}</a></div>`;
+    const modeBadge=(pay.razorpay_mode||pay.mode||'test').toUpperCase();
+    const liveWarning=(pay.razorpay_live_mode||pay.live_mode)?'<span class="ok">LIVE MODE</span>':'<span class="warn">TEST MODE</span>';
+    document.getElementById('paymentPanel').innerHTML=`<h4>Payment</h4><div class="kv"><b>Provider</b><span class="mono">${esc(pay.provider||'razorpay')}</span></div><div class="kv"><b>Mode</b><span>${liveWarning} <span class="pill">${esc(modeBadge)}</span></span></div><div class="kv"><b>Status</b><span>${pay.razorpay_configured?'<span class="ok">Razorpay configured</span>':'<span class="warn">Razorpay not configured; UPI fallback only</span>'}</span></div><div class="kv"><b>Webhook</b><span>${pay.razorpay_webhook_configured||pay.webhook_configured?'<span class="ok">Configured</span>':'<span class="warn">Not configured</span>'}</span></div><div class="kv"><b>UPI ID</b><span class="mono">${esc(pay.upi_id||'Optional fallback not configured')}</span></div><div class="kv"><b>Price</b><span>₹${amount} per extra search</span></div><div class="muted small" style="margin-top:8px">${esc(pay.note||'Verified payment unlocks one extra search automatically.')}</div>${payButton}`;
+  }catch(e){document.getElementById('usagePanel').innerHTML='<span class="bad">Usage status failed</span>'}
+}
+function paywallHtml(err){
+  const amount=(lastUsagePayment?.price_per_search_inr)||'2';
+  const msg=err?.message||'Daily free search limit reached.';
+  return `<div class="paywall-box"><div class="warn"><b>${esc(msg)}</b></div><div class="muted small">Free limit is exhausted for this IP. Pay ₹${esc(amount)} to unlock one extra verified search.</div><a class="pay-search-btn" onclick="openPaymentModal(${Number(amount)||2})">Search ₹${esc(amount)}</a></div>`;
+}
+let lastUsagePayment=null;
+let pendingPaidRetry=null;
+let currentPaymentOrder=null;
+let paymentPollTimer=null;
+let paymentPollDeadline=0;
+
+function stopPaymentPolling(){
+  if(paymentPollTimer){clearInterval(paymentPollTimer); paymentPollTimer=null;}
+}
+async function pollPaymentStatus(){
+  if(!currentPaymentOrder?.order_id) return;
+  const body=document.getElementById('paymentModalBody');
+  const secondsLeft=Math.max(0, Math.ceil((paymentPollDeadline-Date.now())/1000));
+  try{
+    const r=await fetch('/api/payments/status/'+encodeURIComponent(currentPaymentOrder.order_id));
+    const d=await r.json();
+    if(r.ok && (d.paid || d.status==='paid')){
+      stopPaymentPolling();
+      body.innerHTML=`<div class="ok"><b>Payment verified.</b></div><div class="muted small">One paid search credit added. Running your pending search now…</div>`;
+      await refreshUsage();
+      setTimeout(async()=>{closePaymentModal(); if(pendingPaidRetry){const fn=pendingPaidRetry; pendingPaidRetry=null; await fn();} else {document.getElementById('results')?.scrollIntoView({behavior:'smooth'});}},850);
+      return;
+    }
+    const countdown=document.getElementById('paymentCountdown');
+    if(countdown) countdown.textContent=`Waiting for payment confirmation… ${secondsLeft}s`;
+  }catch(e){
+    const countdown=document.getElementById('paymentCountdown');
+    if(countdown) countdown.textContent=`Checking payment… ${secondsLeft}s`;
+  }
+  if(Date.now()>=paymentPollDeadline){
+    stopPaymentPolling();
+    const countdown=document.getElementById('paymentCountdown');
+    if(countdown) countdown.innerHTML='<span class="warn">Payment not confirmed within this window. If money was debited, wait a moment and click Check Again.</span>';
+  }
+}
+function startPaymentPolling(seconds=60){
+  stopPaymentPolling();
+  paymentPollDeadline=Date.now()+seconds*1000;
+  pollPaymentStatus();
+  paymentPollTimer=setInterval(pollPaymentStatus,3000);
+}
+
+async function openPaymentModal(amount=2){
+  const back=document.getElementById('paymentModalBackdrop');
+  const body=document.getElementById('paymentModalBody');
+  back.classList.add('show');
+  body.innerHTML='<span class="loader">Creating secure payment order…</span>';
+  try{
+    const r=await fetch('/api/payments/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({units:1})});
+    const d=await r.json();
+    if(!r.ok) throw new Error(typeof d.detail==='string'?d.detail:(d.detail?.message||JSON.stringify(d.detail)||'Payment order failed'));
+    currentPaymentOrder=d;
+    body.innerHTML=`<div class="kv"><b>Provider</b><span>Razorpay verified checkout</span></div><div class="kv"><b>Amount</b><span>₹${esc(d.amount_inr)}</span></div><div class="kv"><b>Order</b><span class="mono">${esc(d.order_id)}</span></div><div class="muted small">Use the UPI-first Razorpay Checkout where available. RepoTrace verifies payment server-side for up to 60 seconds. Once confirmed, one search credit is added and your pending search resumes automatically.</div><div id="paymentCountdown" class="muted small" style="margin-top:8px">Waiting for payment window…</div><div class="pay-actions" style="margin-top:12px"><button onclick="launchRazorpayCurrent();startPaymentPolling(60)" class="pay-search-btn">Open Payment / QR</button><button onclick="pollPaymentStatus()" class="secondary">Check Again</button><button class="secondary" onclick="closePaymentModal()">Cancel</button></div>`;
+    launchRazorpayCurrent();
+    startPaymentPolling(60);
+  }catch(e){
+    // Fallback to old dynamic UPI QR if Razorpay is not configured. This cannot auto-verify.
+    try{
+      const r2=await fetch('/api/payment-intent?amount='+encodeURIComponent(amount)); const u=await r2.json();
+      if(!r2.ok) throw new Error(u.detail||e.message);
+      body.innerHTML=`<div class="warn"><b>Verified payment gateway not configured.</b></div><div class="muted small">Showing UPI fallback QR. This cannot auto-unlock searches without Razorpay/payment-gateway verification.</div><div class="kv"><b>UPI ID</b><span class="mono">${esc(u.upi_id)}</span></div><div class="kv"><b>Amount</b><span>₹${esc(u.amount_inr)}</span></div><div class="pay-qr"><img src="${esc(u.qr_url)}&t=${Date.now()}"/></div><div class="pay-actions"><a class="mini-link" href="${esc(u.upi_uri)}">Open UPI App</a><button class="secondary" onclick="closePaymentModal()">Close</button></div>`;
+    }catch(e2){body.innerHTML=`<span class="bad">${esc(e2.message)}</span>`}
+  }
+}
+function launchRazorpayCurrent(){
+  let d=currentPaymentOrder;
+  if(!d){document.getElementById('paymentModalBody').innerHTML='<span class="bad">No active payment order. Try again.</span>';return}
+  if(!window.Razorpay){document.getElementById('paymentModalBody').innerHTML='<span class="bad">Razorpay checkout script failed to load.</span>';return}
+  const options={
+    key:d.key_id,
+    amount:d.amount,
+    currency:d.currency||'INR',
+    name:d.name||'RepoTrace',
+    description:d.description||'RepoTrace search credit',
+    order_id:d.order_id,
+    prefill:d.prefill||{},
+    method:{upi:true,card:true,netbanking:true,wallet:true},
+    config:{
+      display:{
+        blocks:{
+          upi_block:{name:'Pay via UPI',instruments:[{method:'upi'}]},
+          other_block:{name:'Other payment methods',instruments:[{method:'card'},{method:'netbanking'},{method:'wallet'}]}
+        },
+        sequence:['block.upi_block','block.other_block'],
+        preferences:{show_default_blocks:false}
+      }
+    },
+    handler:async function(resp){
+      stopPaymentPolling();
+      const body=document.getElementById('paymentModalBody');
+      body.innerHTML='<span class="loader">Verifying payment and unlocking search…</span>';
+      try{
+        const vr=await fetch('/api/payments/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(resp)});
+        const vd=await vr.json();
+        if(!vr.ok) throw new Error(vd.detail||'Payment verification failed');
+        body.innerHTML=`<div class="ok"><b>Payment verified.</b></div><div class="muted small">${esc(vd.units_granted||1)} paid search credit added. Retrying search now…</div>`;
+        await refreshUsage();
+        setTimeout(async()=>{closePaymentModal(); if(pendingPaidRetry){const fn=pendingPaidRetry; pendingPaidRetry=null; await fn();} else {document.getElementById('results')?.scrollIntoView({behavior:'smooth'});}},850);
+      }catch(e){body.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+    },
+    modal:{ondismiss:function(){}}
+  };
+  const rz=new Razorpay(options); rz.open();
+}
+function closePaymentModal(){stopPaymentPolling();document.getElementById('paymentModalBackdrop').classList.remove('show')}
+
+async function loadAdminUsage(){
+  const u=document.getElementById('adminUser').value; const p=document.getElementById('adminPass').value;
+  const out=document.getElementById('adminOut'); out.innerHTML='<span class="loader">Loading admin usage…</span>';
+  try{
+    const basic=btoa(u+':'+p);
+    const r=await fetch('/api/admin/usage',{headers:{'Authorization':'Basic '+basic}}); const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||'Admin auth failed');
+    localStorage.setItem('repotrace_admin_basic',basic);
+    out.innerHTML=`<div class="ok" style="margin-bottom:10px">Admin mode enabled for this browser. Searches will be unlimited and not counted.</div><div class="dash">${metric('Today',d.total_searches_today)}${metric('Active IPs',d.active_ips_today)}${metric('Lifetime',d.lifetime_searches)}${metric('Free Limit',d.free_searches_per_day)}${metric('Burst',d.rate_limit_per_minute+'/min')}</div><div style="margin-top:10px"><button class="secondary" onclick="logoutAdmin()">Logout Admin Mode</button></div><h4>Top IPs Today</h4><table><tr><th>IP</th><th>Searches</th><th>Units</th><th>Last Seen</th></tr>${(d.top_ips_today||[]).map(x=>`<tr><td>${esc(x.ip)}</td><td>${esc(x.searches||0)}</td><td>${esc(x.units||0)}</td><td>${esc(x.last_seen?new Date(x.last_seen*1000).toLocaleString():'-')}</td></tr>`).join('')}</table>`;
+    refreshUsage();
+  }catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+}
+function logoutAdmin(){localStorage.removeItem('repotrace_admin_basic');document.getElementById('adminOut').innerHTML='<span class="muted">Admin mode disabled.</span>';refreshUsage();}
+refreshUsage();
+function ownerRepoFromData(){const s=lastData?.snapshot||{};return {owner:s.owner,repo:s.name,branch:lastData?.branch}}
+async function analyze(){const url=document.getElementById('url').value.trim();document.getElementById('results').classList.remove('hidden');document.getElementById('status').innerHTML='<span class="loader">Analyzing…</span>';document.getElementById('dashboard').innerHTML='<div class="loader">Scanning repository…</div>';try{lastData=await post('/api/analyze',{url,max_files:+maxFiles.value,max_commits:+maxCommits.value});render(lastData);document.getElementById('status').innerHTML='<span class="ok">Done.</span>';document.getElementById('results')?.scrollIntoView({behavior:'smooth'});tokenStatus()}catch(e){if(e.status===429){pendingPaidRetry=analyze;document.getElementById('status').innerHTML=paywallHtml(e)}else{document.getElementById('status').innerHTML=`<span class="bad">${esc(e.message)}</span>`}document.getElementById('dashboard').innerHTML=''}}
+function render(r){if(r.target_type==='user'){renderUser(r);return}const s=r.snapshot||{},risk=r.risk||{},perf=r.adaptive_scan||{};document.getElementById('scanMode').innerText=(perf.mode||'user')+' · '+(perf.strategy||'metadata');document.getElementById('dashboard').innerHTML=[metric('Risk Score',`${risk.level||'INFO'} ${risk.score??''}`,`risk-${risk.level}`),metric('Files Analyzed',`${perf.files_analyzed??0}/${perf.total_files_discovered??0}`),metric('Directories',perf.total_dirs_discovered??0),metric('Commits Checked',perf.commits_selected_for_detail??0),metric('Runtime',perf.elapsed_ms?`${perf.elapsed_ms} ms`:'-')].join('');document.getElementById('adaptive').innerHTML=perf.mode?`Mode <b>${esc(perf.mode)}</b> · workers files/commits <b>${esc(perf.file_concurrency)}/${esc(perf.commit_concurrency)}</b> · max bytes/file <b>${esc(perf.max_file_bytes)}</b> · ${esc(perf.rate_limit_tip||'')}`:'';renderSnapshot(s);renderRisk(risk);renderTree(r.tree||{});renderExtra(r);renderInfra(r.infra_links||{});renderIocs(r.iocs||{});renderFiles(r.files_analyzed||[]);renderCommits(r.commits||[]);renderFindings(r.suspicious_findings||[]);renderRepoAttackGraph(r);let o=ownerRepoFromData();['cmpOwner','histOwner'].forEach(id=>document.getElementById(id).value=o.owner||'');['cmpRepo','histRepo'].forEach(id=>document.getElementById(id).value=o.repo||'');histBranch.value=o.branch||''}
+function renderUser(r){
+  const u=r.user||{}, repos=r.repositories||[];
+  const isGitLab=(r.platform||'github')==='gitlab';
+  document.getElementById('scanMode').innerText=(r.platform||'github')+' namespace · '+(r.namespace_scan?.source||'metadata');
+  document.getElementById('dashboard').innerHTML=[
+    metric('Platform',r.platform||'github'),
+    metric('Namespace Type',u.type||'-'),
+    metric('Public Repos',u.public_repos??repos.length),
+    metric('Followers',u.followers??'-'),
+    metric('Following',u.following??'-'),
+    metric('Created',shortDate(u.created_at)||'-'),
+    metric('Last Activity',shortDate(u.last_activity_at||u.last_activity_on)||'-'),
+    metric('Stars Received',u.total_stars_received??'-'),
+    metric('Forks',u.total_forks??'-'),
+    metric('Archived',u.archived_projects??'-')
+  ].join('');
+  document.getElementById('adaptive').innerHTML=r.namespace_scan?`<b>${esc(r.namespace_scan.note||'Namespace scan')}</b> · source <b>${esc(r.namespace_scan.source||'-')}</b> · repos found <b>${esc(r.namespace_scan.repos_found??repos.length)}</b> · enriched <b>${esc(r.namespace_scan.enriched_projects??repos.length)}</b>`:'User-level scan only. Paste a specific repo/project URL for full analysis.';
+  const profileOrder=['platform','type','id','login','username','name','html_url','bio','description','organization','location','public_email','website_url','avatar_url','created_at','last_activity_at','last_activity_on','state','visibility','full_path','parent_id','private_profile','total_stars_received','total_forks','languages_observed','public_project_visibility'];
+  document.getElementById('snapshot').innerHTML=profileOrder.filter(k=>u[k]!==undefined && u[k]!==null && u[k]!=='' && !(Array.isArray(u[k])&&u[k].length===0)).map(k=>{
+    const v=u[k];
+    const val=Array.isArray(v)?v.join(', '):(typeof v==='object'?JSON.stringify(v):v);
+    return `<div class="kv"><b>${esc(k)}</b><span>${k==='html_url'||k==='avatar_url'||k==='website_url'?`<a target="_blank" href="${esc(val)}">${esc(val)}</a>`:esc(val)}</span></div>`
+  }).join('') || '<div class="empty">No public profile fields returned.</div>';
+  document.getElementById('risk').innerHTML=`<span class="muted">Namespace/user-level scan only. Open a repository/project for deep file, tree, commit, IOC, and risk analysis.</span>`;
+  const rows=repos.map(x=>`<tr>
+    <td><a target="_blank" href="${esc(x.html_url||'')}">${esc(x.full_name||x.name||'')}</a><br><span class="muted small">${esc(x.description||'')}</span></td>
+    <td>${esc(shortDate(x.created_at)||'-')}</td>
+    <td>${esc(shortDate(x.updated_at)||'-')}</td>
+    <td>${esc(shortDate(x.pushed_at)||'-')}</td>
+    <td>${esc(x.stars??'-')}</td>
+    <td>${esc(x.forks??'-')}</td>
+    <td>${esc(x.open_issues??'-')}</td>
+    <td>${esc(x.default_branch||'-')}</td>
+    <td>${esc(x.visibility||'-')}</td>
+    <td>${esc(x.size??'-')}</td>
+    <td>${esc(x.commit_count??'-')}</td>
+    <td>${boolChip('Issues',x.issues_enabled)} ${boolChip('MR',x.merge_requests_enabled)} ${boolChip('Wiki',x.wiki_enabled)} ${boolChip('Jobs',x.jobs_enabled)} ${boolChip('Registry',x.container_registry_enabled)} ${boolChip('Pkg',x.packages_enabled)} ${boolChip('Snips',x.snippets_enabled)}</td>
+    <td>${arr(x.languages||[])}</td>
+    <td>${arr(x.topics||[])}</td>
+    <td>${x.archived?'<span class="bad">archived</span>':'-'} ${x.fork?'<span class="pill">fork</span>':''}</td>
+  </tr>`).join('');
+  document.getElementById('files').innerHTML=repos.length?`<h3>Public repositories / projects</h3><div class="muted small">GitLab exposes fields depending on public visibility and token permissions. Empty cells mean the API did not expose that field.</div><table><tr><th>Repo / Project</th><th>Created</th><th>Updated</th><th>Pushed</th><th>Stars</th><th>Forks</th><th>Issues</th><th>Branch</th><th>Visibility</th><th>Size KB</th><th>Commits</th><th>Features</th><th>Languages</th><th>Topics</th><th>Flags</th></tr>${rows}</table>`:'<div class="empty">No public repositories/projects returned for this namespace, or the GitLab API could not enumerate them without a token.</div>';
+  document.getElementById('repoTree').innerHTML='<div class="empty">Open a specific repo/project URL to build the full repository tree.</div>';
+  document.getElementById('commits').innerHTML='<div class="empty">Open a specific repo/project URL to inspect commits.</div>';
+  document.getElementById('iocs').innerHTML='<div class="empty">Open a specific repo/project URL to extract IOCs.</div>';
+  document.getElementById('infra').innerHTML='<div class="empty">Open a specific repo/project URL to build infra links.</div>';
+}
+function shortDate(v){return v?String(v).replace('T',' ').replace('Z','').slice(0,16):''}
+function boolChip(label,val){if(val===undefined||val===null)return '';return `<span class="pill ${val?'ok':''}">${esc(label)}:${val?'Y':'N'}</span>`}
+function renderSnapshot(s){const order=['id','name','full_name','owner','html_url','description','created_at','updated_at','pushed_at','default_branch','size','stars','forks','watchers','open_issues','license','topics','fork','archived','disabled','visibility','is_template','allow_forking'];document.getElementById('snapshot').innerHTML=order.map(k=>`<div class="kv"><b>${esc(k)}</b><span>${k==='html_url'?`<a target="_blank" href="${esc(s[k])}">${esc(s[k])}</a>`:esc(Array.isArray(s[k])?s[k].join(', '):(s[k]??''))}</span></div>`).join('')}
+function renderRisk(risk){const factors=risk.factors||[];document.getElementById('risk').innerHTML=`<h2 class="risk-${esc(risk.level)}">${esc(risk.level)} / ${esc(risk.score)}</h2><h4>Why this risk?</h4>${factors.map(f=>`<div class="risk-factor"><span><b>${esc(f.category)}</b><br><span class="muted">${esc(f.reason)}</span></span><b class="risk-${esc(risk.level)}">+${esc(f.points)}</b></div>`).join('')||arr(risk.reasons||[])}<h4>Attack Narrative</h4><div class="empty">${esc(risk.explanation||'No narrative generated.')}</div>`}
+function renderTree(tree){const entries=(tree.entries||[]).slice().sort((a,b)=>(a.path||'').localeCompare(b.path||''));if(!entries.length){repoTree.innerHTML='<div class="empty">No tree entries returned.</div>';return}const lines=[];for(const e of entries){const depth=(e.path.match(/\//g)||[]).length;const name=e.path.split('/').pop();const ind='&nbsp;'.repeat(depth*4);const icon=e.type==='tree'?'📁':'📄';const cls=e.type==='tree'?'tree-dir':'tree-file';const meta=e.type==='blob'?` <span class="tree-meta">${esc(e.size||0)}B</span>`:'';lines.push(`<div class="tree-line ${cls}">${ind}${icon} ${esc(name)}${meta}</div>`)}repoTree.innerHTML=`<div class="muted small">Files: ${esc(tree.files)} · Dirs: ${esc(tree.directories)} · Entries shown: ${esc(entries.length)} ${tree.truncated_by_github?'· GitHub truncated tree':''}</div><br/>`+lines.join('')}
+function renderExtra(r){const langs=r.languages||{};const contrib=r.contributors||[];const releases=r.releases||[];repoExtra.innerHTML=`<h4>Languages</h4>${arr(Object.entries(langs).map(([k,v])=>`${k}: ${v}`))}<h4>Contributors</h4>${arr(contrib.slice(0,20).map(c=>c.login||c.name||c.author_name))}<h4>Releases</h4>${releases.length?releases.slice(0,8).map(x=>`<div class="pill">${esc(x.name||x.tag_name)} · ${esc(x.published_at||'')}</div>`).join(''):'<span class="muted">No releases observed</span>'}`}
+function renderInfra(infra){infraEl=infra;const freq=infra.domain_frequency||[];document.getElementById('infra').innerHTML=`<p><b>Services:</b><br/>${arr(infra.external_services||[])}</p><p><b>Domains:</b> ${(infra.domains||[]).length}</p><div class="ioc-list">${(infra.domains||[]).slice(0,100).map(x=>`<span class="ioc-item">${esc(x)}</span>`).join('')||'<span class="muted">None</span>'}</div><p><b>Top domain frequency:</b></p><div class="ioc-list">${freq.slice(0,25).map(x=>`<span class="ioc-item">${esc(x[0])} (${esc(x[1])})</span>`).join('')||'<span class="muted">None</span>'}</div><p><b>Emails:</b></p><div class="ioc-list">${(infra.emails||[]).slice(0,60).map(x=>`<span class="ioc-item">${esc(x)}</span>`).join('')||'<span class="muted">None</span>'}</div>`}
+function renderIocs(i){const keys=['urls','emails','ipv4','domains','secret_pattern_hits'];document.getElementById('iocs').innerHTML=`<div class="ioc-grid">${keys.map(k=>`<div class="ioc-card"><div class="ioc-head"><b>${esc(k)}</b><span class="pill">${(i[k]||[]).length}</span></div><div class="ioc-list">${(i[k]||[]).slice(0,120).map(x=>`<span class="ioc-item">${esc(x)}</span>`).join('')||'<span class="muted">None</span>'}</div></div>`).join('')}</div>`}
+function renderFiles(files){
+  const rows=files.slice(0,220).map(f=>{
+    const raw=f.raw_download_url||f.download_url||'';
+    const html=f.html_url||'';
+    const safePath=esc(f.path||'');
+    const safeRaw=esc(raw);
+    const safeHtml=esc(html);
+    const actions=raw
+      ? `<a class="mini-link" target="_blank" href="${safeRaw}">raw</a> <a class="mini-btn" href="${safeRaw}" download>Download</a>`
+      : '<span class="muted">N/A</span>';
+    const pathCell=html?`<a target="_blank" href="${safeHtml}" class="mono">${safePath}</a>`:`<span class="mono">${safePath}</span>`;
+    return `<tr><td>${pathCell}</td><td>${esc(f.size)}</td><td>${esc(f.priority||'')}</td><td class="mono small">${esc(f.hashes?.sha256||f.hash_note||'')}</td><td>${actions}</td><td>${arr(f.findings||[])}</td><td><button onclick="quickHistory('${safePath}')">History</button></td></tr>`
+  }).join('');
+  document.getElementById('files').innerHTML=`<table><tr><th>Path</th><th>Size</th><th>Priority</th><th>SHA256</th><th>Download</th><th>Findings</th><th>History</th></tr>${rows}</table>`
+}
+function renderCommits(c){document.getElementById('commits').innerHTML=`<table><tr><th>Date</th><th>Commit</th><th>Author</th><th>Verified</th><th>Stats</th><th>Files</th></tr>${c.slice(0,120).map(x=>`<tr><td>${esc(x.author_date)}</td><td><a target="_blank" href="${esc(x.html_url)}">${esc((x.sha||'').slice(0,7))}</a><br>${esc(x.message||'')}</td><td>${esc(x.author_name)}</td><td>${esc(x.verified)}<br><span class="muted small">${esc(x.verification_reason||'')}</span></td><td class="mono small">${esc(JSON.stringify(x.stats||{}))}</td><td class="mono small">${(x.files||[]).slice(0,10).map(f=>`${esc(f.status)} ${esc(f.filename)} (+${esc(f.additions)}/-${esc(f.deletions)})`).join('<br>')}</td></tr>`).join('')}</table>`}
+function renderFindings(f){document.getElementById('findings').innerHTML=f.length?`<table><tr><th>Type</th><th>File</th><th>Detail</th></tr>${f.map(x=>`<tr><td>${esc(x.type)}</td><td class="mono">${esc(x.file||'')}</td><td>${esc(x.detail)}</td></tr>`).join('')}</table>`:'<span class="muted">No suspicious findings in scanned subset.</span>'}
+async function quickHistory(path){showTab('historyTab');let o=ownerRepoFromData();histOwner.value=o.owner||'';histRepo.value=o.repo||'';histBranch.value=o.branch||'';histPath.value=path;await fileHistory();document.getElementById('historyCard').scrollIntoView({behavior:'smooth',block:'start'})}
+async function fileHistory(){const out=document.getElementById('historyOut');out.innerHTML='<span class="loader">Fetching file history…</span>';try{const d=await post('/api/file-history',{owner:histOwner.value,repo:histRepo.value,path:histPath.value,branch:histBranch.value||null,max_commits:+histMax.value});renderHistory(d)}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
+function renderHistory(d){const rows=d.history||d.commits||[];if(!rows.length){historyOut.innerHTML=`<h4 class="mono">${esc(d.path||histPath.value)}</h4><div class="empty">No commit history returned for this exact path. Check path spelling/case and branch.</div>`;return}historyOut.innerHTML=`<h4 class="mono">${esc(d.path)}</h4><table><tr><th>Date</th><th>Commit</th><th>Author</th><th>Verified</th><th>File Change</th></tr>${rows.map(h=>`<tr><td>${esc(h.author_date)}</td><td><a target="_blank" href="${esc(h.html_url)}">${esc((h.sha||'').slice(0,7))}</a><br>${esc(h.message||'')}</td><td>${esc(h.author_name||'')}</td><td>${esc(h.verified)}<br><span class="muted small">${esc(h.verification_reason||'')}</span></td><td>${(h.file_changes||[]).map(f=>`<div class="mono small">${esc(f.filename||'')}<br>${esc(f.status)} +${esc(f.additions)} -${esc(f.deletions)}<pre>${esc(f.patch||'No patch available for this file/change.')}</pre></div>`).join('')||'<span class="muted">No patch available</span>'}</td></tr>`).join('')}</table>`}
+
+function highlightPatch(patch){
+  const suspicious=/(password|passwd|pwd|secret|api[_-]?key|token|AKIA[0-9A-Z]{16}|gh[pousr]_|eval\(|exec\(|base64|curl .*\|.*bash|wget .*\|.*sh|invoke-webrequest|downloadstring)/i;
+  return String(patch||'').split('\n').map(line=>{
+    const cls=suspicious.test(line)?'diff-hit':(line.startsWith('+')?'diff-add':(line.startsWith('-')?'diff-del':''));
+    return `<span class="${cls}">${esc(line)}</span>`;
+  }).join('\n');
+}
+function renderLinkMap(map,title){
+  const entries=Object.entries(map||{});
+  if(!entries.length)return `<div><b>${esc(title)}</b><br><span class="muted">None</span></div>`;
+  return `<div><b>${esc(title)}</b><br>${entries.slice(0,80).map(([k,v],idx)=>`<div><button class="secondary" onclick="toggleLinkDetail('ld-${title}-${idx}')">${esc(k)} (${new Set(v).size})</button><div id="ld-${title}-${idx}" class="link-detail hidden">${arr([...new Set(v)])}</div></div>`).join('')}</div>`;
+}
+function toggleLinkDetail(id){document.getElementById(id)?.classList.toggle('hidden')}
+
+async function compare(){const out=diffOut;out.innerHTML='<span class="loader">Comparing…</span>';try{const d=await post('/api/compare',{owner:cmpOwner.value,repo:cmpRepo.value,base:cmpBase.value,head:cmpHead.value});out.innerHTML=`<h4>${esc(d.status||'compare')} · ahead ${esc(d.ahead_by)} / behind ${esc(d.behind_by)} · files ${(d.files||[]).length}</h4><h4>Suspicious Diff Findings</h4>${arr((d.suspicious_findings||[]).map(f=>`${f.type}: ${f.file} ${f.detail||''}`))}<h4>Added IOCs</h4>${arr([...(d.added_iocs?.urls||[]),...(d.added_iocs?.domains||[]),...(d.added_iocs?.ipv4||[])])}<table><tr><th>File</th><th>Status</th><th>+/-</th><th>Suspicious</th><th>Highlighted Patch</th></tr>${(d.files||[]).map(f=>`<tr><td class="mono">${esc(f.filename)}</td><td>${esc(f.status)}</td><td>+${esc(f.additions)} / -${esc(f.deletions)}</td><td>${arr((f.suspicious_changes||[]).map(x=>x.detail||x.type))}</td><td><pre>${highlightPatch(f.patch||'')}</pre></td></tr>`).join('')}</table>`}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
+async function loadTimeline(){
+  if(!lastData){timelineOut.innerHTML='<span class="warn">Analyze a repo first.</span>';return}
+  let o=ownerRepoFromData();timelineOut.innerHTML='<span class="loader">Building forensic timeline…</span>';
+  try{
+    const d=await post('/api/timeline',{owner:o.owner,repo:o.repo,branch:o.branch||null,max_commits:+maxCommits.value});
+    const events=d.events||[],summary=d.summary||{};
+    window.currentTimelineEvents=events;
+    const sev=summary.severity_counts||events.reduce((a,e)=>{a[e.severity||'info']=(a[e.severity||'info']||0)+1;return a},{});
+    const suspicious=events.filter(e=>['high','warning','notice'].includes(e.severity||'')).length;
+    timelineOut.innerHTML=`<div class="dash">${metric('Timeline Events',summary.total_events||events.length)}${metric('Suspicious/Notice',suspicious,suspicious?'warn':'')}${metric('High Severity',sev.high||0,(sev.high||0)?'bad':'')}${metric('Branch',d.branch||o.branch||'-')}${metric('Sync', 'Graph-ready')}</div><div class="syncbar"><span class="pill">Click timeline event → graph highlight</span><button class="secondary mini-btn" onclick="renderRepoAttackGraph(lastData);showTab('overview')">Refresh Attack Graph</button></div><div class="timeline">${events.slice(-160).map((e,idx)=>`<div class="event sev-${esc(e.severity||'info')}" data-event-idx="${idx}" onclick="syncTimelineEventToGraph(${idx},this)"><div class="small muted">${esc(e.date)} · ${esc(e.type)} ${e.sha?`· <a target="_blank" href="${esc(e.html_url||e.url||'')}">${esc(e.sha.slice(0,7))}</a>`:''}</div><b>${esc(e.title||e.message)}</b><div>${esc(e.detail||'')}</div>${e.author?`<div class="small muted">Author: ${esc(e.author)} · Verified: ${esc(e.verified)}</div>`:''}</div>`).join('')}</div>`;
+  }catch(e){timelineOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+}
+function syncTimelineEventToGraph(idx,el){
+  document.querySelectorAll('.event.selected').forEach(x=>x.classList.remove('selected'));
+  el?.classList.add('selected');
+  const e=(window.currentTimelineEvents||[])[idx]; if(!e)return;
+  const candidates=graphSyncCandidatesFromEvent(e);
+  const ok=highlightFirstGraphCandidate('repoGraph',candidates);
+  if(ok)showTab('overview');
+  else alert('Timeline event loaded, but no matching graph node was found for this event yet.');
+}
+function buildGraphPairs(links){
+  const pairs=[];
+  const addPairs=(map,type)=>{Object.entries(map||{}).forEach(([ioc,repos])=>{[...new Set(Array.isArray(repos)?repos:Object.values(repos).flat())].forEach(repo=>pairs.push({repo,ioc,type,relation:type==='domain'?'uses domain':type==='email'?'shares email':'shares contributor'}))})};
+  addPairs(links.shared_domains,'domain');addPairs(links.shared_emails,'email');addPairs(links.shared_contributors,'contributor');
+  return pairs;
+}
+function buildSingleRepoPairs(r){
+  const s=r.snapshot||{}; const repo=s.full_name||s.name||'repository'; const i=r.iocs||{}; const pairs=[];
+  (i.domains||[]).slice(0,80).forEach(x=>pairs.push({repo,ioc:x,type:'domain',relation:'references'}));
+  (i.ipv4||[]).slice(0,40).forEach(x=>pairs.push({repo,ioc:x,type:'ipv4',relation:'references'}));
+  (i.emails||[]).slice(0,40).forEach(x=>pairs.push({repo,ioc:x,type:'email',relation:'contains'}));
+  (r.infra_links?.contributors||[]).slice(0,50).forEach(x=>pairs.push({repo,ioc:x,type:'contributor',relation:'contributor'}));
+  (r.suspicious_findings||[]).filter(f=>f.file).slice(0,60).forEach(f=>pairs.push({repo,ioc:f.file,type:'file',relation:f.type||'finding'}));
+  return pairs;
+}
+function nodeIcon(kind){return kind==='repo'?'📦':kind==='email'?'✉️':kind==='contributor'?'👤':kind==='ipv4'?'🌐':kind==='file'?'📄':'🔗'}
+function unique(arr){return [...new Set((arr||[]).filter(Boolean))]}
+function graphNodeDetail(node,pairs,mode){
+  if(!node)return '<div class="muted">Click any node to inspect its relationships.</div>';
+  const relatedPairs=node.kind==='repo'?pairs.filter(p=>p.repo===node.label):pairs.filter(p=>p.ioc===node.label);
+  const relatedRepos=unique(relatedPairs.map(p=>p.repo));
+  const relatedIocs=unique(relatedPairs.map(p=>`${p.type}: ${p.ioc}`));
+  let html=`<div class="section-title"><h4 style="margin:0">${nodeIcon(node.kind)} ${esc(node.label)}</h4><span class="pill">${esc(node.kind)}</span></div>`;
+  html+=`<div class="graph-filter-note"><b>Connected edges:</b> ${relatedPairs.length}<br><b>Related repos:</b> ${relatedRepos.length}</div>`;
+  if(node.kind==='repo') html+=`<h4>Related indicators</h4>${arr(relatedIocs.slice(0,80))}`;
+  else html+=`<h4>Used in repositories</h4>${arr(relatedRepos.slice(0,80))}`;
+  if(mode==='bulk'){
+    const filterValue=node.kind==='repo'?node.label:null;
+    const reposForFilter=node.kind==='repo'?[node.label]:relatedRepos;
+    html+=`<div class="actionbar" style="margin-top:12px"><button class="secondary" onclick='filterBulkRepos(${JSON.stringify(reposForFilter)})'>Filter repo table</button><button class="secondary" onclick="clearBulkFilter()">Clear filter</button></div>`;
+  }
+  html+=`<p class="muted small">Double-click a repository node to open it on its source platform. Clicking a node highlights only its connected edges.</p>`;
+  return html;
+}
+function applyGraphHighlight(box,nodeId){
+  box.querySelectorAll('.graph-node,.graph-edge,.graph-edge-label').forEach(el=>{el.classList.add('dim');el.classList.remove('active','related')});
+  box.querySelectorAll(`[data-node-id="${CSS.escape(nodeId)}"]`).forEach(el=>{el.classList.remove('dim');el.classList.add('active','related')});
+  box.querySelectorAll(`[data-from="${CSS.escape(nodeId)}"],[data-to="${CSS.escape(nodeId)}"]`).forEach(el=>{el.classList.remove('dim');el.classList.add('related')});
+  box.querySelectorAll('.graph-edge.related').forEach(edge=>{
+    const a=edge.getAttribute('data-from'),b=edge.getAttribute('data-to');
+    box.querySelectorAll(`[data-node-id="${CSS.escape(a)}"],[data-node-id="${CSS.escape(b)}"]`).forEach(el=>{el.classList.remove('dim');el.classList.add('related')});
+    box.querySelectorAll(`[data-edge-id="${CSS.escape(edge.getAttribute('data-edge-id'))}"]`).forEach(el=>{el.classList.remove('dim');el.classList.add('related')});
+  });
+}
+function clearGraphHighlight(containerId){
+  const box=document.getElementById(containerId); if(!box)return;
+  box.querySelectorAll('.graph-node,.graph-edge,.graph-edge-label').forEach(el=>el.classList.remove('dim','active','related'));
+  const side=document.getElementById(containerId+'Detail'); if(side)side.innerHTML='<div class="muted">Click any node to inspect its relationships.</div>';
+}
+function renderRelationshipGraph(containerId,pairs,{mode='bulk'}={}){
+  const box=document.getElementById(containerId); const side=document.getElementById(containerId+'Detail');
+  if(!box)return;
+  pairs=(pairs||[]).filter(p=>p&&p.repo&&p.ioc);
+  if(!pairs.length){box.innerHTML='<div class="empty" style="margin:16px">No relationships found for this graph yet.</div>'; if(side)side.innerHTML='<div class="muted">No graph relationships available.</div>';return;}
+  const repos=unique(pairs.map(p=>p.repo)).slice(0,45);
+  const iocs=unique(pairs.map(p=>p.ioc)).slice(0,100);
+  const typeByIoc={}; pairs.forEach(p=>{typeByIoc[p.ioc]=typeByIoc[p.ioc]||p.type||'domain'});
+  const stageH=Math.max(455, Math.max(repos.length,iocs.length)*48+80);
+  const nodes=[];
+  repos.forEach((r,i)=>nodes.push({id:'r:'+r,label:r,kind:'repo',x:18,y:8+(84*Math.max(i,0)/Math.max(repos.length-1,1))}));
+  iocs.forEach((d,i)=>nodes.push({id:'i:'+d,label:d,kind:typeByIoc[d]||'domain',x:78,y:8+(84*Math.max(i,0)/Math.max(iocs.length-1,1))}));
+  const pos=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  const labelLimit=pairs.length<=60;
+  let svg='';
+  pairs.slice(0,300).forEach((p,idx)=>{
+    const a=pos['r:'+p.repo],b=pos['i:'+p.ioc]; if(!a||!b)return;
+    const edgeId='e'+idx; const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    svg+=`<line class="graph-edge" data-edge-id="${edgeId}" data-from="r:${esc(p.repo)}" data-to="i:${esc(p.ioc)}" x1="${a.x}%" y1="${a.y}%" x2="${b.x}%" y2="${b.y}%" />`;
+    if(labelLimit) svg+=`<text class="graph-edge-label" data-edge-id="${edgeId}" x="${mx}%" y="${my}%">${esc(p.relation||p.type||'links')}</text>`;
+  });
+  const nodeHtml=nodes.map((n,idx)=>`<div class="graph-node ${esc(n.kind)}" data-idx="${idx}" data-node-id="${esc(n.id)}" title="${esc(n.label)}" style="left:${n.x}%;top:${n.y}%">${nodeIcon(n.kind)} ${esc(n.label)}</div>`).join('');
+  box.innerHTML=`<div class="graph-toolbar"><span class="pill">📦 Repository</span><span class="pill">🔗 Domain/IP/URL</span><span class="pill">✉️ Email</span><span class="pill">👤 Contributor</span><span class="pill">📄 File</span><button class="secondary mini-btn" onclick="clearGraphHighlight('${containerId}')">Clear selection</button></div><div class="graph-stage" style="height:${stageH}px"><svg class="graph-svg">${svg}</svg>${nodeHtml}</div>`;
+  if(side)side.innerHTML='<div class="muted">Click any node to inspect its relationships.</div>';
+  box.querySelectorAll('.graph-node').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const node=nodes[+el.dataset.idx];
+      applyGraphHighlight(box,node.id);
+      if(side)side.innerHTML=graphNodeDetail(node,pairs,mode);
+    });
+    el.addEventListener('dblclick',()=>{
+      const node=nodes[+el.dataset.idx];
+      if(node.kind==='repo') window.open(node.platform==='gitlab'?'https://gitlab.com/'+node.label:'https://github.com/'+node.label,'_blank');
+    });
+  });
+  setTimeout(()=>{box.scrollLeft=0;box.scrollTop=0},0);
+}
+
+function renderGraphIntelPanel(containerId,pairs){
+  const host=document.getElementById(containerId); if(!host)return;
+  pairs=(pairs||[]).filter(p=>p&&p.repo&&p.ioc);
+  if(!pairs.length){host.innerHTML='<div class="empty">No graph intelligence available yet.</div>';return;}
+  const repos=unique(pairs.map(p=>p.repo));
+  const byType={}; const byIoc={}; const byRepo={};
+  pairs.forEach(p=>{
+    const t=p.type||'indicator';
+    byType[t]=(byType[t]||0)+1;
+    byIoc[p.ioc]=byIoc[p.ioc]||{type:t,repos:new Set(),count:0};
+    byIoc[p.ioc].repos.add(p.repo); byIoc[p.ioc].count++;
+    byRepo[p.repo]=byRepo[p.repo]||new Set(); byRepo[p.repo].add(p.ioc);
+  });
+  const hot=Object.entries(byIoc).sort((a,b)=>b[1].repos.size-a[1].repos.size || b[1].count-a[1].count).slice(0,8);
+  const topRepos=Object.entries(byRepo).sort((a,b)=>b[1].size-a[1].size).slice(0,8);
+  host.innerHTML=`<div class="graph-intel-grid">
+    <div class="mini-card"><div class="label">Graph nodes</div><div class="big">${repos.length + Object.keys(byIoc).length}</div><div class="muted small">${repos.length} repo(s), ${Object.keys(byIoc).length} indicator(s)</div></div>
+    <div class="mini-card"><div class="label">Edges</div><div class="big">${pairs.length}</div><div class="muted small">repo ↔ indicator relationships</div></div>
+    <div class="mini-card"><div class="label">Types</div><div>${Object.entries(byType).map(([k,v])=>`<span class="chip">${esc(k)} ${v}</span>`).join(' ')||'<span class="muted">None</span>'}</div></div>
+  </div>
+  <div class="twogrid" style="margin-top:12px">
+    <div class="panel"><h4>Highest-reuse indicators</h4>${hot.map(([ioc,v])=>`<div class="linkitem"><b>${esc(ioc)}</b><br><span class="muted small">${esc(v.type)} · ${v.repos.size} repo(s)</span></div>`).join('')||'<div class="muted">No reused indicators.</div>'}</div>
+    <div class="panel"><h4>Most connected repos</h4>${topRepos.map(([repo,set])=>`<div class="linkitem"><b>${esc(repo)}</b><br><span class="muted small">${set.size} linked indicator(s)</span></div>`).join('')||'<div class="muted">No connected repos.</div>'}</div>
+  </div>`;
+}
+
+function renderInfraGraph(pairs){currentGraphPairs=pairs||[];renderRelationshipGraph('infraGraph',pairs,{mode:'bulk'});renderGraphIntelPanel('infraGraphIntel',pairs||[]);}
+function renderRepoAttackGraph(r){const pairs=buildSingleRepoPairs(r);renderRelationshipGraph('repoGraph',pairs,{mode:'single'});renderGraphIntelPanel('repoGraphIntel',pairs);}
+function renderBulkRepoTable(results,reposFilter=null){
+  const host=document.getElementById('bulkRepoTable'); if(!host)return;
+  const allowed=reposFilter?new Set(reposFilter):null;
+  const rows=(results||[]).filter(x=>!allowed||allowed.has(x.summary?.full_name)||allowed.has(x.url)).map(x=>x.ok?`<tr data-repo="${esc(x.summary.full_name)}"><td><a target="_blank" href="${esc(x.summary.url)}">${esc(x.summary.full_name)}</a></td><td class="risk-${esc(x.summary.risk?.level||'')}">${esc(x.summary.risk?.level)} ${esc(x.summary.risk?.score)}</td><td>${esc(x.summary.scan_mode)}</td><td>${esc(x.summary.findings)}</td><td>${esc(x.summary.domains)}</td></tr>`:`<tr><td>${esc(x.url)}</td><td colspan="4" class="bad">${esc(x.error)}</td></tr>`).join('');
+  host.innerHTML=`${reposFilter?`<div class="graph-filter-note">Filtered to ${reposFilter.length} connected repo(s). <button class="secondary mini-btn" onclick="clearBulkFilter()">Clear</button></div>`:''}<table><tr><th>Repo</th><th>Risk</th><th>Mode</th><th>Findings</th><th>Domains</th></tr>${rows||'<tr><td colspan="5" class="muted">No matching repos.</td></tr>'}</table>`;
+}
+function filterBulkRepos(repos){currentBulkFilter=repos||null;renderBulkRepoTable(currentBulkData?.results||[],currentBulkFilter)}
+function clearBulkFilter(){currentBulkFilter=null;renderBulkRepoTable(currentBulkData?.results||[],null)}
+async function bulkScan(){
+  const out=document.getElementById('bulkOut');
+  document.getElementById('bulkResults').classList.remove('hidden');
+  out.innerHTML='<span class="loader">Bulk scanning repositories…</span>';
+  try{
+    const urls=bulkUrls.value.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+    if(!urls.length){out.innerHTML='<span class="warn">Paste at least one GitHub repo URL.</span>';return}
+    const r=await post('/api/bulk-scan',{urls,max_files:+bulkFiles.value,max_commits:+bulkCommits.value,concurrency:+bulkConc.value});
+    const links=r.cross_repo||{};
+    const sharedDomains=normalizeList(links.shared_domains);
+    const sharedEmails=normalizeList(links.shared_emails);
+    const sharedContribs=normalizeList(links.shared_contributors);
+    currentBulkData=r; currentBulkFilter=null;
+    out.innerHTML=`<div class="dash">${metric('Repos',r.count||0)}${metric('Successful',r.ok||0,'ok')}${metric('Failed',r.failed||0,(r.failed||0)?'bad':'')}${metric('Shared Domains',normalizeCount(links.shared_domains))}${metric('Shared Emails',normalizeCount(links.shared_emails))}</div>
+    <div class="section-title"><h4>Interactive Infrastructure Graph</h4><span class="pill">Click node → pivot · Double-click repo → open GitHub</span></div>
+    <div class="graph-shell"><div id="infraGraph" class="graphbox"></div><div id="infraGraphDetail" class="graph-side"><div class="muted">Run bulk scan and click a graph node.</div></div></div><div id="infraGraphIntel" class="graph-detail"></div>
+    <h4>Cross-Repo Infrastructure Links</h4>
+    <div class="thirdgrid">${renderLinkMap(links.shared_domains,'Shared Domains')}${renderLinkMap(links.shared_emails,'Shared Emails')}${renderLinkMap(links.shared_contributors,'Shared Contributors')}</div>
+    <h4>Repository Results</h4><div id="bulkRepoTable"></div>`;
+    renderInfraGraph(r.graph || buildGraphPairs(links));
+    renderBulkRepoTable(r.results||[],null);
+  }catch(e){if(e.status===429){pendingPaidRetry=bulkScan;out.innerHTML=paywallHtml(e)}else{out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
+}
+async function saveInvestigation(){
+  if(!lastData){alert('Analyze a repo first.');return}
+  const title=(document.getElementById('saveTitle')?.value||lastData.snapshot?.full_name||'RepoTrace investigation');
+  try{const r=await post('/api/investigations',{title,result:lastData});alert('Saved investigation: '+r.id);listInvestigations()}catch(e){alert('Save failed: '+e.message)}
+}
+async function listInvestigations(){
+  const out=document.getElementById('savedOut');out.innerHTML='<span class="loader">Loading saved investigations…</span>';
+  try{const r=await fetch('/api/investigations').then(x=>x.json());const items=r.investigations||[];out.innerHTML=items.length?`<table><tr><th>ID</th><th>Title</th><th>Created</th><th>Open</th></tr>${items.map(i=>`<tr><td class="mono small">${esc(i.id)}</td><td>${esc(i.title)}</td><td>${esc(i.created_at)}</td><td><button class="secondary" onclick="loadInvestigation('${esc(i.id)}')">Load</button></td></tr>`).join('')}</table>`:'<div class="empty">No saved investigations yet.</div>'}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+}
+async function loadInvestigation(id){
+  try{const d=await fetch('/api/investigations/'+encodeURIComponent(id)).then(x=>x.json());lastData=d.result||d;document.getElementById('results').classList.remove('hidden');render(lastData);window.scrollTo({top:0,behavior:'smooth'})}catch(e){alert('Load failed: '+e.message)}
+}
+
+async function compareRepos(){
+  const out=document.getElementById('repoCompareOut');out.innerHTML='<span class="loader">Comparing repositories…</span>';
+  try{const d=await post('/api/repo-compare',{repo_a_url:repoAUrl.value,repo_b_url:repoBUrl.value,max_files:+bulkFiles.value||80,max_commits:+bulkCommits.value||35});
+    const a=d.repo_a?.summary||{}, b=d.repo_b?.summary||{}, sim=d.similarity||{};
+    out.innerHTML=`<div class="dash">${metric('Shared Domains',sim.shared_domains||0)}${metric('Shared Emails',sim.shared_emails||0)}${metric('Shared Contributors',sim.shared_contributors||0)}${metric('Shared Paths',sim.shared_file_paths||0)}${metric('Risk Δ A-B',sim.risk_score_delta_a_minus_b??0)}</div>
+    <div class="grid"><div><h4>Repo A</h4><p><a target="_blank" href="${esc(a.url)}">${esc(a.full_name)}</a></p><p class="risk-${esc(a.risk?.level||'')}">${esc(a.risk?.level)} ${esc(a.risk?.score)}</p></div><div><h4>Repo B</h4><p><a target="_blank" href="${esc(b.url)}">${esc(b.full_name)}</a></p><p class="risk-${esc(b.risk?.level||'')}">${esc(b.risk?.level)} ${esc(b.risk?.score)}</p></div></div>
+    <h4>Shared Intelligence</h4><div class="thirdgrid"><div><b>Domains</b><br>${arr(d.shared?.domains||[])}</div><div><b>Emails / Contributors</b><br>${arr([...(d.shared?.emails||[]),...(d.shared?.contributors||[])])}</div><div><b>Similar File Paths</b><br>${arr((d.shared?.file_paths||[]).slice(0,80))}</div></div>`;
+  }catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+}
+async function downloadHtmlReport(){if(!lastData){alert('Analyze a repo first.');return}let o=ownerRepoFromData();const text=await post('/api/report-html',{owner:o.owner,repo:o.repo,branch:o.branch||null,max_files:+maxFiles.value,max_commits:+maxCommits.value});downloadText(text,`repotrace-${o.owner}-${o.repo}-analyst-report.html`,'text/html')}
+
+async function downloadReport(){if(!lastData){alert('Analyze a repo first.');return}let o=ownerRepoFromData();const text=await post('/api/report',{owner:o.owner,repo:o.repo,branch:o.branch||null,max_files:+maxFiles.value,max_commits:+maxCommits.value});downloadText(text,`repotrace-${o.owner}-${o.repo}-analyst-report.md`,'text/markdown')}
+function downloadJson(){downloadText(JSON.stringify(lastData,null,2),'repotrace-report.json','application/json')}
+function downloadText(text,name,type){const blob=new Blob([text],{type});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click()}
+
+async function accountScan(){
+  const out=document.getElementById('radarOut');
+  const account=document.getElementById('acctName').value.trim();
+  if(!account){out.innerHTML='<span class="bad">Enter a GitHub user/org.</span>';return}
+  out.innerHTML='<span class="loader">Scanning account repos…</span>';
+  try{
+    const d=await post('/api/account-scan',{
+      account,
+      account_type:document.getElementById('acctType').value,
+      max_repos:+document.getElementById('acctMaxRepos').value,
+      max_files:+document.getElementById('acctFiles').value,
+      max_commits:+document.getElementById('acctCommits').value,
+      concurrency:+document.getElementById('acctConc').value
+    });
+    currentBulkData={results:d.results||[],cross_repo:d.cross_repo||{},graph:d.graph||[]};
+    renderAccountScan(d);
+    tokenStatus();
+  }catch(e){if(e.status===429){pendingPaidRetry=accountScan;out.innerHTML=paywallHtml(e)}else{out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
+}
+function renderAccountScan(d){
+  const s=d.summary||{};
+  const ranked=d.risk_ranked||[];
+  const out=document.getElementById('radarOut');
+  out.innerHTML=`
+    <div class="dash">
+      ${metric('Repos Seen',s.public_repos_seen??d.repo_count_returned??0)}
+      ${metric('Repos Scanned',s.repos_scanned??d.ok??0)}
+      ${metric('High Risk',s.high_risk_repos??0,'risk-HIGH')}
+      ${metric('Medium Risk',s.medium_risk_repos??0,'risk-MEDIUM')}
+      ${metric('Max Risk',s.max_risk_score??0)}
+    </div>
+    <div class="grid" style="margin-top:14px">
+      <div class="card compact-card">
+        <h3>Risk-Ranked Repositories</h3>
+        <table><tr><th>Repo</th><th>Risk</th><th>Files</th><th>Commits</th><th>Stars/Forks</th><th>Branch</th><th>Created</th><th>Pushed</th><th>Signals</th></tr>
+        ${ranked.slice(0,100).map(r=>`<tr title="${esc((r.risk_reasons||[]).join(' | '))}">
+          <td><a target="_blank" href="${esc(r.html_url||r.url||'#')}">${esc(r.full_name||r.name||'-')}</a><br><span class="muted small">${esc(r.description||'')}</span></td>
+          <td class="risk-${esc(r.risk_level||'')}"><b>${esc(r.risk_level||'-')}</b> ${esc(r.risk_score??'')}</td>
+          <td>${esc(r.files_analyzed??'-')}/${esc(r.total_files??'-')}<br><span class="muted small">dirs ${esc(r.directories??'-')}</span></td>
+          <td>${esc(r.commits_checked??r.recent_commits??'-')}</td>
+          <td>⭐ ${esc(r.stars??0)} / 🍴 ${esc(r.forks??0)}<br><span class="muted small">watch ${esc(r.watchers??0)}</span></td>
+          <td><span class="mono">${esc(r.default_branch||'-')}</span><br><span class="muted small">${esc(r.license||'no-license')}</span></td>
+          <td>${fmtDate(r.created_at)}</td>
+          <td>${fmtDate(r.pushed_at||r.updated_at)}</td>
+          <td>findings ${esc(r.findings??0)} · domains ${esc(r.domains??0)} · secrets ${esc(r.secret_hits??0)}<br><span class="muted small">${esc((r.archived?'archived ':'')+(r.fork?'fork ':'')+(r.topics||[]).slice(0,3).join(', '))}</span></td>
+        </tr>`).join('')}</table>
+      </div>
+      <div class="card compact-card">
+        <h3>Cross-Repo Links</h3>
+        ${renderCrossRepo(d.cross_repo||{})}
+      </div>
+    </div>
+    <div class="card compact-card">
+      <div class="section-title"><h3>Account Infrastructure Graph</h3><span class="pill">RepoTrace Radar</span></div>
+      <div class="graph-shell"><div id="accountGraph" class="graphbox"></div><div id="accountGraphDetail" class="graph-side"><div class="muted">Click a graph node to pivot.</div></div></div>
+    </div>`;
+  try{ renderGenericGraph('accountGraph','accountGraphDetail',d.graph||[]); }catch(e){}
+}
+function renderCrossRepo(c){
+  const block=(title,obj)=>`<div class="ioc-card"><div class="ioc-head"><b>${esc(title)}</b><span class="pill">${normalizeCount(obj)}</span></div>${Object.entries(obj||{}).slice(0,30).map(([k,v])=>`<div class="link-detail"><b>${esc(k)}</b><br><span class="muted small">${esc(Array.isArray(v)?v.join(', '):JSON.stringify(v))}</span></div>`).join('')||'<div class="empty">None</div>'}</div>`;
+  return block('Shared domains',c.shared_domains||{})+block('Shared emails',c.shared_emails||{})+block('Shared contributors',c.shared_contributors||{});
+}
+async function watchTarget(){
+  const out=document.getElementById('radarOut');
+  const target=document.getElementById('watchTarget').value.trim();
+  if(!target){out.innerHTML='<span class="bad">Enter a repo URL or user/org.</span>';return}
+  out.innerHTML='<span class="loader">Running watch scan… baseline/delta computation in progress…</span>';
+  try{
+    const d=await post('/api/watch',{
+      target,
+      target_type:'auto',
+      notify_email:document.getElementById('watchEmail').value.trim() || null,
+      max_repos:+document.getElementById('watchMaxRepos').value,
+      max_files:70,
+      max_commits:30,
+      concurrency:+document.getElementById('watchConc').value
+    });
+    renderWatch(d);
+    tokenStatus();
+  }catch(e){if(e.status===429){pendingPaidRetry=watchTarget;out.innerHTML=paywallHtml(e)}else{out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
+}
+function fmtChangeItem(x){
+  if(typeof x==='string') return esc(x);
+  if(x && typeof x==='object') return `${x.repo?`<span class="muted mono small">${esc(x.repo)}</span><br>`:''}${esc(x.path||x.sha||JSON.stringify(x))}`;
+  return esc(String(x));
+}
+function changeList(title,items,kind=''){
+  const data=items||[];
+  return `<div class="watch-card"><div class="section-title"><h4>${esc(title)}</h4><span class="pill ${kind}">${data.length}</span></div><div class="watch-list">${data.length?data.slice(0,120).map(x=>`<div class="change-row"><span class="muted small">${esc(title)}</span><span>${fmtChangeItem(x)}</span></div>`).join(''):'<div class="empty">None</div>'}</div></div>`;
+}
+function renderWatch(d){
+  const diff=d.diff||{};
+  const current=d.current||{};
+  const email=d.email||{};
+  const repoDiffs=diff.repo_diffs||{};
+  const newFiles=diff.new_files||[], deletedFiles=diff.deleted_files||[], modifiedFiles=diff.modified_files||[], newCommits=diff.new_commits||[];
+  const totalRepoChanges=Object.keys(repoDiffs).length;
+  document.getElementById('radarOut').innerHTML=`
+    <div class="dash">
+      ${metric('Watch ID',d.watch_id||'-')}
+      ${metric('First Scan',d.first_scan?'Yes':'No')}
+      ${metric('Changes',diff.has_changes?'Detected':'None',diff.has_changes?'risk-HIGH':'risk-LOW')}
+      ${metric('Email',email.attempted?(email.sent?'Sent':'Failed'):'Not attempted')}
+      ${metric('Snapshot',current.created_at||'-')}
+    </div>
+    <div class="watch-summary" style="margin-top:12px">
+      ${metric('New Commits',newCommits.length,newCommits.length?'ok':'')}
+      ${metric('New Files',newFiles.length,newFiles.length?'ok':'')}
+      ${metric('Modified Files',modifiedFiles.length,modifiedFiles.length?'warn':'')}
+      ${metric('Deleted Files',deletedFiles.length,deletedFiles.length?'bad':'')}
+      ${metric('New Domains',(diff.new_domains||[]).length,(diff.new_domains||[]).length?'warn':'')}
+      ${metric('Repos Changed',totalRepoChanges,totalRepoChanges?'warn':'')}
+    </div>
+    <div class="grid" style="margin-top:14px">
+      <div class="card compact-card">
+        <div class="section-title"><h3>What Changed Since Last Scan?</h3><span class="pill">v20 delta dashboard</span></div>
+        ${(diff.summary||[]).map(x=>`<div class="risk-factor"><span>${esc(x)}</span></div>`).join('') || '<div class="empty">No summary available.</div>'}
+        ${changeList('New files',newFiles,'delta-up')}
+        ${changeList('Modified files',modifiedFiles,'warn')}
+        ${changeList('Deleted files',deletedFiles,'delta-down')}
+      </div>
+      <div class="card compact-card">
+        <h3>New Intelligence</h3>
+        ${changeList('New commits',newCommits,'ok')}
+        ${changeList('New domains',diff.new_domains||[],'warn')}
+        ${changeList('New public IPs',diff.new_ipv4||[],'warn')}
+        <div class="watch-card"><h4>Risk changes</h4>${(diff.risk_changes||[]).map(x=>`<div class="risk-factor"><span>${esc(x.target||'target')}</span><span>${esc((x.from||{}).level||'-')} ${esc((x.from||{}).score??'')} → ${esc((x.to||{}).level||'-')} ${esc((x.to||{}).score??'')}</span></div>`).join('') || '<div class="empty">None</div>'}</div>
+      </div>
+    </div>
+    <div class="card compact-card">
+      <h3>Changed Repositories</h3>
+      ${Object.entries(repoDiffs).slice(0,80).map(([repo,rd])=>`<div class="link-detail"><b>${esc(repo)}</b><br>${(rd.summary||[]).map(x=>`<span class="pill">${esc(x)}</span>`).join('')}<div class="small muted" style="margin-top:8px">New files: ${(rd.new_files||[]).length} · Modified: ${(rd.modified_files||[]).length} · Deleted: ${(rd.deleted_files||[]).length} · New domains: ${(rd.new_domains||[]).length}</div></div>`).join('') || '<div class="empty">No repo-level changes or this was a single-repo watch.</div>'}
+    </div>`;
+}
+function renderGenericGraph(containerId, detailId, graph){
+  const pairs=(graph||[]).map((e,i)=>({source:e.source||e.repo||e.from,target:e.target||e.domain||e.to,type:e.type||e.kind||'link',label:e.label||e.type||'link'})).filter(x=>x.source&&x.target);
+  const box=document.getElementById(containerId); const detail=document.getElementById(detailId);
+  if(!box) return;
+  if(!pairs.length){box.innerHTML='<div class="empty">No graph relationships found.</div>';return}
+  const nodesMap=new Map(), edges=[];
+  pairs.forEach(p=>{
+    if(!nodesMap.has(p.source)) nodesMap.set(p.source,{id:p.source,type:String(p.source).includes('/')?'repo':'node'});
+    if(!nodesMap.has(p.target)) nodesMap.set(p.target,{id:p.target,type:p.type||'node'});
+    edges.push(p);
+  });
+  const nodes=[...nodesMap.values()];
+  const w=Math.max(1020, nodes.length*110), h=480;
+  const repos=nodes.filter(n=>n.type==='repo'||n.id.includes('/'));
+  const others=nodes.filter(n=>!repos.includes(n));
+  const pos={};
+  repos.forEach((n,i)=>pos[n.id]={x:180,y:80+(i*(h-130)/Math.max(1,repos.length-1))});
+  others.forEach((n,i)=>pos[n.id]={x:w-260,y:80+(i*(h-130)/Math.max(1,others.length-1))});
+  box.innerHTML=`<div class="graph-stage" style="min-width:${w}px;height:${h}px"><svg class="graph-svg" viewBox="0 0 ${w} ${h}">
+    ${edges.map((e,i)=>{const a=pos[e.source],b=pos[e.target];return `<line class="graph-edge" data-e="${i}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"></line><text class="graph-edge-label" x="${(a.x+b.x)/2}" y="${(a.y+b.y)/2-5}">${esc(e.label)}</text>`}).join('')}
+    </svg>${nodes.map(n=>`<div class="graph-node ${esc(n.type)}" data-node="${esc(n.id)}" style="left:${pos[n.id].x}px;top:${pos[n.id].y}px">${esc(n.id)}</div>`).join('')}</div>`;
+  box.querySelectorAll('.graph-node').forEach(el=>el.onclick=()=>{
+    const id=el.dataset.node; const rel=edges.filter(e=>e.source===id||e.target===id);
+    detail.innerHTML=`<h3>${esc(id)}</h3><div class="muted small">${rel.length} relationship(s)</div>${rel.map(e=>`<div class="link-detail">${esc(e.source)} → <b>${esc(e.target)}</b><br><span class="pill">${esc(e.label)}</span></div>`).join('')}`;
+  });
+}
+
+</script>
+</body>
+</html>
