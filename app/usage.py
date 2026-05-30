@@ -243,6 +243,36 @@ class UsageManager:
         }
 
 
+
+
+def _admin_credentials() -> dict[str, str]:
+    """Return all valid admin credentials from env.
+
+    Supported:
+      ADMIN_USERNAME / ADMIN_PASSWORD
+      TEST_ADMIN_USERNAME / TEST_ADMIN_PASSWORD
+      ADMIN_USERS_JSON={"admin":"pass","tester":"pass"}
+    """
+    creds = {}
+    user = os.getenv("ADMIN_USERNAME", "admin")
+    pwd = os.getenv("ADMIN_PASSWORD", "")
+    if user and pwd:
+        creds[user] = pwd
+    test_user = os.getenv("TEST_ADMIN_USERNAME", "")
+    test_pwd = os.getenv("TEST_ADMIN_PASSWORD", "")
+    if test_user and test_pwd:
+        creds[test_user] = test_pwd
+    raw = os.getenv("ADMIN_USERS_JSON", "").strip()
+    if raw:
+        try:
+            data = json.loads(raw)
+            for k, v in (data or {}).items():
+                if k and v:
+                    creds[str(k)] = str(v)
+        except Exception:
+            pass
+    return creds
+
 def _parse_basic_auth(request: Request) -> tuple[str, str] | None:
     auth = request.headers.get("authorization", "")
     if not auth.lower().startswith("basic "):
@@ -256,21 +286,20 @@ def _parse_basic_auth(request: Request) -> tuple[str, str] | None:
 
 
 def is_admin_request(request: Request) -> bool:
-    user = os.getenv("ADMIN_USERNAME", "admin")
-    pwd = os.getenv("ADMIN_PASSWORD", "")
-    if not pwd:
+    creds = _admin_credentials()
+    if not creds:
         return False
     parsed = _parse_basic_auth(request)
     if not parsed:
         return False
     supplied_user, supplied_pwd = parsed
-    return supplied_user == user and supplied_pwd == pwd
+    return supplied_user in creds and supplied_pwd == creds.get(supplied_user)
 
 
 def require_admin_basic(request: Request) -> None:
-    pwd = os.getenv("ADMIN_PASSWORD", "")
-    if not pwd:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin password not configured. Set ADMIN_PASSWORD in .env.")
+    creds = _admin_credentials()
+    if not creds:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin password not configured. Set ADMIN_PASSWORD or ADMIN_USERS_JSON in .env.")
     auth = request.headers.get("authorization", "")
     if not auth.lower().startswith("basic "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin auth required", headers={"WWW-Authenticate": "Basic"})

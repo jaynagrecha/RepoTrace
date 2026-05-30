@@ -15,19 +15,21 @@ from .analyzer import RepoTraceAnalyzer
 from .storage import list_investigations, read_investigation, save_investigation
 from .usage import usage_manager, enforce_or_429, require_admin_basic
 from .payments import payment_manager
+from .auth import auth_manager
+from .reporting import build_report_template, save_report, maybe_email_report, malicious_file_evidence
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
-app = FastAPI(title="RepoTrace", version="0.22.1")
+app = FastAPI(title="RepoTrace", version="0.28.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 class AnalyzeRequest(BaseModel):
     url: str = Field(..., examples=["https://github.com/owner/repo"])
-    max_files: int = Field(120, ge=1, le=300)
+    max_files: int = Field(1000, ge=1, le=5000)
     max_commits: int = Field(60, ge=1, le=120)
 
 
@@ -64,7 +66,7 @@ class ReportRequest(BaseModel):
     owner: str
     repo: str
     branch: str | None = None
-    max_files: int = Field(100, ge=1, le=300)
+    max_files: int = Field(1000, ge=1, le=5000)
     max_commits: int = Field(60, ge=1, le=120)
 
 
@@ -83,6 +85,27 @@ class PaymentVerifyRequest(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
+
+class AuthRegisterRequest(BaseModel):
+    email: str
+    password: str
+    org_name: str | None = None
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class ReportAbuseRequest(BaseModel):
+    kind: str = Field("repo", pattern="^(repo|user|org)$")
+    target_url: str
+    analyst_email: str | None = None
+    analyst_name: str | None = None
+    analyst_designation: str | None = None
+    analyst_org: str | None = None
+    reason: str | None = None
+    result: dict | None = None
+    send_email: bool = True
+
 
 class RepoCompareRequest(BaseModel):
     repo_a_url: str
@@ -204,13 +227,86 @@ async def home():
     return FileResponse("app/static/index.html")
 
 
+def _session_token(request: Request) -> str | None:
+    return request.headers.get("X-RepoTrace-Session") or request.cookies.get("repotrace_session")
+
+def _analyzer_for_request(request: Request) -> RepoTraceAnalyzer:
+    token = auth_manager.user_github_token(_session_token(request))
+    return RepoTraceAnalyzer(github_token=token)
+
+
+def _is_org_unlimited_request(request: Request) -> bool:
+    return auth_manager.has_server_org_token(_session_token(request))
+
+
+def _usage_status_for_request(request: Request) -> dict:
+    if _is_org_unlimited_request(request):
+        st = usage_manager.status_for_request(request)
+        st.update({
+            "access_mode": "org_unlimited",
+            "org_unlimited": True,
+            "remaining_today": None,
+            "message": "Org unlimited mode: using server-side organization GitHub token; public quota is not consumed.",
+        })
+        return st
+    return usage_manager.status_for_request(request)
+
+
+def _enforce_search_quota(request: Request, units: int = 1, endpoint: str = "scan") -> None:
+    if _is_org_unlimited_request(request):
+        return
+    enforce_or_429(request, units=units, endpoint=endpoint)
+
+
+def _record_search_usage(request: Request, units: int = 1, endpoint: str = "scan") -> dict:
+    if _is_org_unlimited_request(request):
+        auth_manager.record_user_search(_session_token(request), units=units)
+        return _usage_status_for_request(request)
+    result = usage_manager.record(request, units=units, endpoint=endpoint)
+    auth_manager.record_user_search(_session_token(request), units=units)
+    return result
+
+@app.post("/api/auth/register")
+async def auth_register(req: AuthRegisterRequest):
+    try:
+        return auth_manager.register(req.email, req.password, org_name=req.org_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/auth/login")
+async def auth_login(req: AuthLoginRequest):
+    try:
+        return auth_manager.login(req.email, req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    return auth_manager.logout(_session_token(request) or "")
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    return auth_manager.status(_session_token(request))
+
+@app.post("/api/report-abuse")
+async def report_abuse(req: ReportAbuseRequest):
+    malicious = malicious_file_evidence(req.result)
+    if not malicious:
+        raise HTTPException(status_code=400, detail="Report generation is allowed only when the current scan has at least one file marked malicious by VirusTotal.")
+    template = build_report_template(req.kind, req.target_url, req.analyst_email, req.reason, req.result, analyst_name=req.analyst_name, analyst_designation=req.analyst_designation, analyst_org=req.analyst_org)
+    saved = save_report(req.kind, req.target_url, template, req.analyst_email, req.result)
+    email_status = maybe_email_report(f"RepoTrace malicious {req.kind} report", template) if req.send_email else {"attempted": False, "sent": False}
+    return {"ok": True, "template": template, "saved": saved, "email": email_status, "malicious_files": malicious}
+
+
+
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest, request: Request):
     try:
-        enforce_or_429(request, units=1, endpoint="analyze")
+        _enforce_search_quota(request, units=1, endpoint="analyze")
         target = parse_github_url(req.url)
-        result = await RepoTraceAnalyzer().analyze(target, max_files=req.max_files, max_commits=req.max_commits)
-        result["usage"] = usage_manager.record(request, units=1, endpoint="analyze")
+        result = await _analyzer_for_request(request).analyze(target, max_files=req.max_files, max_commits=req.max_commits)
+        result["usage"] = _record_search_usage(request, units=1, endpoint="analyze")
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -222,17 +318,17 @@ async def analyze(req: AnalyzeRequest, request: Request):
 async def bulk_scan(req: BulkScanRequest, request: Request):
     try:
         units = max(1, len(req.urls or []))
-        enforce_or_429(request, units=units, endpoint="bulk-scan")
-        result = await RepoTraceAnalyzer().bulk_scan(req.urls, max_files=req.max_files, max_commits=req.max_commits, concurrency=req.concurrency)
-        result["usage"] = usage_manager.record(request, units=units, endpoint="bulk-scan")
+        _enforce_search_quota(request, units=units, endpoint="bulk-scan")
+        result = await _analyzer_for_request(request).bulk_scan(req.urls, max_files=req.max_files, max_commits=req.max_commits, concurrency=req.concurrency)
+        result["usage"] = _record_search_usage(request, units=units, endpoint="bulk-scan")
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.get("/api/token-status")
-async def token_status():
-    gh = GitHubClient()
+async def token_status(request: Request):
+    gh = GitHubClient(token=auth_manager.user_github_token(_session_token(request)))
     gl = GitLabClient()
     status = {"github_token_configured": bool(gh.token), "gitlab_token_configured": bool(gl.token)}
     try:
@@ -246,12 +342,12 @@ async def token_status():
 
 @app.get("/api/usage-status")
 async def usage_status(request: Request):
-    return usage_manager.status_for_request(request)
+    return _usage_status_for_request(request)
 
 
 @app.get("/api/public-config")
 async def public_config(request: Request):
-    return usage_manager.status_for_request(request)
+    return _usage_status_for_request(request)
 
 
 @app.get("/api/admin/usage")
@@ -261,25 +357,25 @@ async def admin_usage(request: Request):
 
 
 @app.post("/api/compare")
-async def compare(req: CompareRequest):
+async def compare(req: CompareRequest, request: Request):
     try:
-        return await RepoTraceAnalyzer().compare_commits(req.owner, req.repo, req.base, req.head)
+        return await _analyzer_for_request(request).compare_commits(req.owner, req.repo, req.base, req.head)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.post("/api/file-history")
-async def file_history(req: FileHistoryRequest):
+async def file_history(req: FileHistoryRequest, request: Request):
     try:
-        return await RepoTraceAnalyzer().file_history(req.owner, req.repo, req.path, branch=req.branch, max_commits=req.max_commits)
+        return await _analyzer_for_request(request).file_history(req.owner, req.repo, req.path, branch=req.branch, max_commits=req.max_commits)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.post("/api/timeline")
-async def timeline(req: TimelineRequest):
+async def timeline(req: TimelineRequest, request: Request):
     try:
-        return await RepoTraceAnalyzer().timeline(req.owner, req.repo, branch=req.branch, max_commits=req.max_commits)
+        return await _analyzer_for_request(request).timeline(req.owner, req.repo, branch=req.branch, max_commits=req.max_commits)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -291,8 +387,8 @@ async def timeline(req: TimelineRequest):
 async def account_scan(req: AccountScanRequest, request: Request):
     try:
         units = max(1, min(req.max_repos, 10))
-        enforce_or_429(request, units=units, endpoint="account-scan")
-        result = await RepoTraceAnalyzer().scan_account(
+        _enforce_search_quota(request, units=units, endpoint="account-scan")
+        result = await _analyzer_for_request(request).scan_account(
             req.account,
             account_type=req.account_type,
             max_repos=req.max_repos,
@@ -300,7 +396,7 @@ async def account_scan(req: AccountScanRequest, request: Request):
             max_commits=req.max_commits,
             concurrency=req.concurrency,
         )
-        result["usage"] = usage_manager.record(request, units=units, endpoint="account-scan")
+        result["usage"] = _record_search_usage(request, units=units, endpoint="account-scan")
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
@@ -309,8 +405,8 @@ async def account_scan(req: AccountScanRequest, request: Request):
 @app.post("/api/watch")
 async def watch(req: WatchRequest, request: Request):
     try:
-        enforce_or_429(request, units=1, endpoint="watch")
-        result = await RepoTraceAnalyzer().watch_target(
+        _enforce_search_quota(request, units=1, endpoint="watch")
+        result = await _analyzer_for_request(request).watch_target(
             req.target,
             target_type=req.target_type,
             notify_email=req.notify_email,
@@ -319,30 +415,30 @@ async def watch(req: WatchRequest, request: Request):
             max_commits=req.max_commits,
             concurrency=req.concurrency,
         )
-        result["usage"] = usage_manager.record(request, units=1, endpoint="watch")
+        result["usage"] = _record_search_usage(request, units=1, endpoint="watch")
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 @app.post("/api/repo-compare")
-async def repo_compare(req: RepoCompareRequest):
+async def repo_compare(req: RepoCompareRequest, request: Request):
     try:
-        return await RepoTraceAnalyzer().compare_repos(req.repo_a_url, req.repo_b_url, max_files=req.max_files, max_commits=req.max_commits)
+        return await _analyzer_for_request(request).compare_repos(req.repo_a_url, req.repo_b_url, max_files=req.max_files, max_commits=req.max_commits)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.post("/api/report-html", response_class=PlainTextResponse)
-async def report_html(req: ReportRequest):
+async def report_html(req: ReportRequest, request: Request):
     try:
-        return await RepoTraceAnalyzer().analyst_report_html(req.owner, req.repo, branch=req.branch, max_files=req.max_files, max_commits=req.max_commits)
+        return await _analyzer_for_request(request).analyst_report_html(req.owner, req.repo, branch=req.branch, max_files=req.max_files, max_commits=req.max_commits)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 @app.post("/api/report", response_class=PlainTextResponse)
-async def report(req: ReportRequest):
+async def report(req: ReportRequest, request: Request):
     try:
-        return await RepoTraceAnalyzer().analyst_report(req.owner, req.repo, branch=req.branch, max_files=req.max_files, max_commits=req.max_commits)
+        return await _analyzer_for_request(request).analyst_report(req.owner, req.repo, branch=req.branch, max_files=req.max_files, max_commits=req.max_commits)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 

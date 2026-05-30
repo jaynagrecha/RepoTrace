@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from .github_client import GitHubClient
 from .gitlab_client import GitLabClient
+from .vt_client import VirusTotalClient
 from .parsers import GitHubTarget, parse_github_url
 
 URL_RE = re.compile(r"https?://[^\s\"\'<>]+", re.I)
@@ -169,9 +170,10 @@ def extract_iocs(text: str) -> dict[str, list[str]]:
 
 
 class RepoTraceAnalyzer:
-    def __init__(self):
-        self.gh = GitHubClient()
+    def __init__(self, github_token: str | None = None):
+        self.gh = GitHubClient(token=github_token)
         self.gl = GitLabClient()
+        self.vt = VirusTotalClient()
 
     async def analyze(self, target: GitHubTarget, max_files: int = 120, max_commits: int = 60) -> dict[str, Any]:
         if getattr(target, "platform", "github") == "gitlab":
@@ -211,11 +213,12 @@ class RepoTraceAnalyzer:
             f"/projects/{project_id}/repository/commits",
             params={"ref_name": branch, "per_page": effective_max_commits},
         )
-        selected_files = self._prioritize_files(files, effective_max_files)
+        selected_files = self._select_files_for_inventory(files, effective_max_files)
         file_results = await self._bounded_gather(
             [lambda f=f: self._analyze_gitlab_file(project_id, project, branch, f, adaptive["max_file_bytes"]) for f in selected_files],
             adaptive["file_concurrency"],
         )
+        file_results = await self._enrich_files_with_vt(file_results)
         commit_results = await self._bounded_gather(
             [lambda sha=c.get("id") or c.get("short_id"): self._gitlab_commit_detail(project_id, sha) for c in commits[:effective_max_commits]],
             adaptive["commit_concurrency"],
@@ -231,7 +234,7 @@ class RepoTraceAnalyzer:
         perf = {
             "mode": adaptive["mode"], "strategy": "GitLab " + adaptive["strategy"], "repo_size_kb": repo_meta.get("size"),
             "total_files_discovered": len(files), "total_dirs_discovered": len(dirs), "tree_truncated_by_github": False,
-            "files_selected_for_scan": len(selected_files), "files_analyzed": len(file_results), "commits_selected_for_detail": min(len(commits), effective_max_commits),
+            "files_selected_for_scan": len(selected_files), "files_analyzed": len(file_results), "files_hashed": sum(1 for f in file_results if f.get("hashes")), "vt_files_checked": sum(1 for f in file_results if f.get("vt", {}).get("configured")), "commits_selected_for_detail": min(len(commits), effective_max_commits),
             "file_concurrency": adaptive["file_concurrency"], "commit_concurrency": adaptive["commit_concurrency"], "max_file_bytes": adaptive["max_file_bytes"],
             "rate_limit_tip": "GitLab scan: use GITLAB_TOKEN for private/high-volume GitLab API work.", "elapsed_ms": elapsed_ms,
         }
@@ -491,18 +494,22 @@ class RepoTraceAnalyzer:
         encoded_path = quote(path, safe="")
         web_url = f"{project.get('web_url')}/-/blob/{branch}/{path}"
         raw_url = f"{project.get('web_url')}/-/raw/{branch}/{path}"
-        result = {"path": path, "size": item.get("size"), "git_blob_sha": item.get("sha"), "raw_download_url": raw_url, "html_url": web_url, "priority": self._file_priority(path, item.get("size") or 0)}
-        if (item.get("size") or 0) > max_bytes:
-            result["hash_note"] = f"Skipped content hashing/scanning because file is over adaptive size limit ({max_bytes} bytes)."
-            return result
-        if _ext(path) and _ext(path) not in TEXT_EXTS and (item.get("size") or 0) > 100_000:
-            result["hash_note"] = "Skipped likely binary/large non-text file."
+        size = item.get("size") or 0
+        result = {"path": path, "size": size, "git_blob_sha": item.get("sha"), "raw_download_url": raw_url, "html_url": web_url, "priority": self._file_priority(path, size)}
+        if size > max_bytes:
+            result["hash_note"] = f"Skipped hashing because file is over safety limit ({max_bytes} bytes). Increase MAX_FILE_HASH_BYTES if needed."
             return result
         data = await self.gl.get_bytes(f"/projects/{project_id}/repository/files/{encoded_path}/raw", params={"ref": branch}, max_bytes=max_bytes)
+        result["byte_count"] = len(data)
         result["hashes"] = hash_bytes(data)
-        text = data.decode("utf-8", errors="ignore")
-        result["iocs"] = extract_iocs(text)
-        result["sample_text"] = text[:25000]
+        if self._should_text_scan(path, data):
+            text = data.decode("utf-8", errors="ignore")
+            result["iocs"] = extract_iocs(text)
+            result["sample_text"] = text[:25000]
+            result["content_type_guess"] = "text"
+        else:
+            result["iocs"] = {"urls": [], "emails": [], "ipv4": [], "domains": [], "secret_pattern_hits": []}
+            result["content_type_guess"] = "binary/non-text"
         return result
 
     async def _gitlab_commit_detail(self, project_id: str, sha: str | None) -> dict[str, Any]:
@@ -555,8 +562,9 @@ class RepoTraceAnalyzer:
         commits_t = self._safe_get(f"/repos/{owner}/{repo}/commits", [], params={"per_page": effective_max_commits, "sha": branch})
         languages, contributors, releases, commits = await asyncio.gather(languages_t, contributors_t, releases_t, commits_t)
 
-        selected_files = self._prioritize_files(files, effective_max_files)
+        selected_files = self._select_files_for_inventory(files, effective_max_files)
         file_results = await self._bounded_gather([lambda f=f: self._analyze_file(owner, repo, branch, f, adaptive["max_file_bytes"]) for f in selected_files], adaptive["file_concurrency"])
+        file_results = await self._enrich_files_with_vt(file_results)
         commit_results = await self._bounded_gather([lambda sha=c.get("sha"): self._commit_detail(owner, repo, sha) for c in commits[:effective_max_commits]], adaptive["commit_concurrency"])
 
         aggregate_text = "\n".join(f.get("sample_text", "") for f in file_results if f.get("sample_text"))
@@ -568,7 +576,7 @@ class RepoTraceAnalyzer:
         perf = {
             "mode": adaptive["mode"], "strategy": adaptive["strategy"], "repo_size_kb": repo_meta.get("size"),
             "total_files_discovered": len(files), "total_dirs_discovered": len(dirs), "tree_truncated_by_github": tree.get("truncated", False),
-            "files_selected_for_scan": len(selected_files), "files_analyzed": len(file_results), "commits_selected_for_detail": min(len(commits), effective_max_commits),
+            "files_selected_for_scan": len(selected_files), "files_analyzed": len(file_results), "files_hashed": sum(1 for f in file_results if f.get("hashes")), "vt_files_checked": sum(1 for f in file_results if f.get("vt", {}).get("configured")), "commits_selected_for_detail": min(len(commits), effective_max_commits),
             "file_concurrency": adaptive["file_concurrency"], "commit_concurrency": adaptive["commit_concurrency"], "max_file_bytes": adaptive["max_file_bytes"],
             "rate_limit_tip": adaptive["rate_limit_tip"], "elapsed_ms": elapsed_ms,
         }
@@ -1137,19 +1145,65 @@ class RepoTraceAnalyzer:
     async def _analyze_file(self, owner: str, repo: str, branch: str, item: dict[str, Any], max_bytes: int) -> dict[str, Any]:
         path = item.get("path", "")
         raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
-        result = {"path": path, "size": item.get("size"), "git_blob_sha": item.get("sha"), "raw_download_url": raw_url, "html_url": f"https://github.com/{owner}/{repo}/blob/{branch}/{path}", "priority": self._file_priority(path, item.get("size") or 0)}
-        if (item.get("size") or 0) > max_bytes:
-            result["hash_note"] = f"Skipped content hashing/scanning because file is over adaptive size limit ({max_bytes} bytes)."
-            return result
-        if _ext(path) and _ext(path) not in TEXT_EXTS and (item.get("size") or 0) > 100_000:
-            result["hash_note"] = "Skipped likely binary/large non-text file."
+        size = item.get("size") or 0
+        result = {"path": path, "size": size, "git_blob_sha": item.get("sha"), "raw_download_url": raw_url, "html_url": f"https://github.com/{owner}/{repo}/blob/{branch}/{path}", "priority": self._file_priority(path, size)}
+        if size > max_bytes:
+            result["hash_note"] = f"Skipped hashing because file is over safety limit ({max_bytes} bytes). Increase MAX_FILE_HASH_BYTES if needed."
             return result
         data = await self.gh.get_bytes(raw_url, max_bytes=max_bytes)
+        result["byte_count"] = len(data)
         result["hashes"] = hash_bytes(data)
-        text = data.decode("utf-8", errors="ignore")
-        result["iocs"] = extract_iocs(text)
-        result["sample_text"] = text[:25000]
+        if self._should_text_scan(path, data):
+            text = data.decode("utf-8", errors="ignore")
+            result["iocs"] = extract_iocs(text)
+            result["sample_text"] = text[:25000]
+            result["content_type_guess"] = "text"
+        else:
+            result["iocs"] = {"urls": [], "emails": [], "ipv4": [], "domains": [], "secret_pattern_hits": []}
+            result["content_type_guess"] = "binary/non-text"
         return result
+
+    def _should_text_scan(self, path: str, data: bytes) -> bool:
+        if _ext(path) in TEXT_EXTS:
+            return True
+        if not data:
+            return False
+        sample = data[:4096]
+        # Avoid running IOC regexes over obvious binaries, but still hash them and VT-check them.
+        if b"\x00" in sample:
+            return False
+        try:
+            sample.decode("utf-8")
+            return True
+        except Exception:
+            return False
+
+    def _select_files_for_inventory(self, files: list[dict], limit: int) -> list[dict]:
+        # Full inventory mode: list every file up to the configured cap, not only risky files.
+        # Priority is retained as metadata, but selection is path-stable for analyst completeness.
+        return sorted(files, key=lambda f: f.get("path", ""))[:limit]
+
+    async def _enrich_files_with_vt(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not files:
+            return files
+        if not self.vt.configured:
+            for f in files:
+                if f.get("hashes", {}).get("sha256"):
+                    f["vt"] = {"configured": False, "status": "not_configured", "verdict": "VT key not configured"}
+            return files
+        lookup_limit = int(os.getenv("VT_LOOKUP_LIMIT", "300"))
+        concurrency = max(1, min(int(os.getenv("VT_LOOKUP_CONCURRENCY", "3")), 6))
+        candidates = [f for f in files if f.get("hashes", {}).get("sha256")][:lookup_limit]
+        sem = asyncio.Semaphore(concurrency)
+        async def one(f: dict[str, Any]):
+            async with sem:
+                f["vt"] = await self.vt.lookup_hash(f["hashes"]["sha256"])
+                return f
+        await asyncio.gather(*(one(f) for f in candidates))
+        for f in files:
+            if f.get("hashes", {}).get("sha256") and "vt" not in f:
+                f["vt"] = {"configured": True, "status": "not_checked", "verdict": f"Not checked; VT_LOOKUP_LIMIT={lookup_limit} reached"}
+        return files
 
     async def _commit_detail(self, owner: str, repo: str, sha: str | None) -> dict[str, Any]:
         if not sha:
@@ -1159,13 +1213,14 @@ class RepoTraceAnalyzer:
 
     def _adaptive_profile(self, repo_meta: dict, files: list[dict], truncated: bool, requested_files: int, requested_commits: int) -> dict[str, Any]:
         count = len(files); size_kb = repo_meta.get("size") or 0
+        max_file_bytes = int(os.getenv("MAX_FILE_HASH_BYTES", "5000000"))
         if truncated or count > 8000 or size_kb > 750000:
-            return {"mode": "huge", "strategy": "metadata + high-risk priority files only", "effective_max_files": min(requested_files, 60), "effective_max_commits": min(requested_commits, 25), "file_concurrency": 6, "commit_concurrency": 4, "max_file_bytes": 250_000, "rate_limit_tip": "Huge repo: scan only priority paths and small text files."}
+            return {"mode": "huge", "strategy": "full inventory up to configured cap; GitHub may truncate enormous repos", "effective_max_files": min(requested_files, count, 1000), "effective_max_commits": min(requested_commits, 25), "file_concurrency": 6, "commit_concurrency": 4, "max_file_bytes": max_file_bytes, "rate_limit_tip": "Huge repo: increase max files carefully; VT/API limits may apply."}
         if count > 2500 or size_kb > 250000:
-            return {"mode": "large", "strategy": "prioritized partial scan", "effective_max_files": min(requested_files, 100), "effective_max_commits": min(requested_commits, 40), "file_concurrency": 8, "commit_concurrency": 5, "max_file_bytes": 500_000, "rate_limit_tip": "Large repo: keep token configured and prefer targeted paths."}
+            return {"mode": "large", "strategy": "full file inventory up to configured cap", "effective_max_files": min(requested_files, count, 2500), "effective_max_commits": min(requested_commits, 40), "file_concurrency": 8, "commit_concurrency": 5, "max_file_bytes": max_file_bytes, "rate_limit_tip": "Large repo: full hashing can consume GitHub/VT quota; tune max files."}
         if count > 400 or size_kb > 50000:
-            return {"mode": "medium", "strategy": "priority-first broad scan", "effective_max_files": min(requested_files, 180), "effective_max_commits": min(requested_commits, 70), "file_concurrency": 12, "commit_concurrency": 8, "max_file_bytes": 900_000, "rate_limit_tip": "Medium repo: parallel scan enabled."}
-        return {"mode": "small", "strategy": "full-ish scan", "effective_max_files": min(requested_files, 250), "effective_max_commits": min(requested_commits, 100), "file_concurrency": 16, "commit_concurrency": 10, "max_file_bytes": 1_500_000, "rate_limit_tip": "Small repo: safe to scan broadly."}
+            return {"mode": "medium", "strategy": "full file inventory + hashes + optional VT verdicts", "effective_max_files": min(requested_files, count, 4000), "effective_max_commits": min(requested_commits, 70), "file_concurrency": 12, "commit_concurrency": 8, "max_file_bytes": max_file_bytes, "rate_limit_tip": "Medium repo: full inventory mode enabled."}
+        return {"mode": "small", "strategy": "complete file inventory + hashes + optional VT verdicts", "effective_max_files": min(requested_files, count, 5000), "effective_max_commits": min(requested_commits, 100), "file_concurrency": 16, "commit_concurrency": 10, "max_file_bytes": max_file_bytes, "rate_limit_tip": "Small repo: every returned file is hashed and listed."}
 
     def _file_priority(self, path: str, size: int) -> int:
         p = path.lower(); score = 0
@@ -1246,6 +1301,9 @@ class RepoTraceAnalyzer:
                 findings.append({"type": "interesting_file", "detail": path})
             if f.get("iocs", {}).get("secret_pattern_hits"):
                 findings.append({"type": "secret_pattern", "detail": f"{path}: {', '.join(f['iocs']['secret_pattern_hits'])}"})
+            vt = f.get("vt") or {}
+            if vt.get("verdict") in {"malicious", "suspicious"}:
+                findings.append({"type": "vt_" + vt.get("verdict"), "detail": f"{path}: VT {vt.get('malicious', 0)} malicious / {vt.get('suspicious', 0)} suspicious"})
         for c in commits:
             files_changed = c.get("files", [])
             if len(files_changed) > 40:
@@ -1280,6 +1338,10 @@ class RepoTraceAnalyzer:
         if any(f.get("type") == "sensitive_path_changed" for f in findings): add(15, "Sensitive paths changed recently", "change_risk")
         if any(f.get("type") == "suspicious_added_content" for f in findings): add(25, "Suspicious code/content introduced in recent changes", "change_risk")
         if any(f.get("type") == "interesting_file" for f in findings): add(5, "Interesting executable/config files present", "file_profile")
+        vt_mal = sum(1 for f in files if (f.get("vt") or {}).get("verdict") == "malicious")
+        vt_susp = sum(1 for f in files if (f.get("vt") or {}).get("verdict") == "suspicious")
+        if vt_mal: add(60, f"VirusTotal reports {vt_mal} file(s) as malicious", "virustotal")
+        elif vt_susp: add(25, f"VirusTotal reports {vt_susp} file(s) as suspicious", "virustotal")
         level = "HIGH" if score >= 60 else "MEDIUM" if score >= 30 else "LOW"
         if not factors:
             reasons = ["No major suspicious indicators in analyzed subset"]
@@ -1296,6 +1358,8 @@ class RepoTraceAnalyzer:
             parts.append("Secret-like content should be manually validated immediately, because regex detections can include both real credentials and test strings.")
         if any(f.get("type") in {"sensitive_path_changed", "suspicious_added_content"} for f in findings):
             parts.append("Recent changes touched sensitive paths or introduced suspicious constructs, so commit-level review is recommended.")
+        if any((f.get("vt") or {}).get("verdict") == "malicious" for f in r.get("files_analyzed", []) or []):
+            parts.append("One or more repository files have malicious VirusTotal hash reputation and should be treated as high priority evidence.")
         if infra.get("external_services"):
             parts.append("The repo references external services/infrastructure that may matter for supply-chain or callback analysis.")
         if not findings:
@@ -1359,6 +1423,9 @@ class RepoTraceAnalyzer:
             "contributors": len(contributors),
             "recent_commits": len(commits),
             "priority_files": sum(1 for f in files if (f.get("priority") or 0) >= 100),
+            "files_hashed": sum(1 for f in files if f.get("hashes")),
+            "vt_malicious_files": sum(1 for f in files if (f.get("vt") or {}).get("verdict") == "malicious"),
+            "vt_suspicious_files": sum(1 for f in files if (f.get("vt") or {}).get("verdict") == "suspicious"),
         }
 
     def _infra_graph_from_cross_repo(self, cross_repo: dict[str, Any]) -> list[dict[str, str]]:
