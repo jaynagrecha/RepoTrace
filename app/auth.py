@@ -162,10 +162,11 @@ class AuthManager:
         user = await self.user_from_session(session)
         if not user:
             return None
+        # Tokens are configured by the operator via environment variables. Use a
+        # server-side org token for the user's email domain if set, otherwise the
+        # global GITHUB_TOKEN handled by the GitHub client default.
         env_token, _ = _org_token_for_domain(user.get("org_domain") or "")
-        if env_token:
-            return env_token
-        return user.get("github_token") or None
+        return env_token or None
 
     async def record_user_search(self, session: Optional[str], units: int = 1) -> None:
         user = await self.user_from_session(session)

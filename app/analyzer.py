@@ -555,7 +555,7 @@ class RepoTraceAnalyzer:
             "summary": self._account_scan_summary(profile, repos, ok_results, cross_repo),
         }
 
-    async def watch_target(self, target_input: str, target_type: str = "auto", notify_email: str | None = None, max_repos: int = 50, max_files: int = 70, max_commits: int = 30, concurrency: int = 3, owner_email: str | None = None, interval_min: int = 360) -> dict[str, Any]:
+    async def watch_target(self, target_input: str, target_type: str = "auto", notify_email: str | None = None, max_repos: int = 50, max_files: int = 70, max_commits: int = 30, concurrency: int = 3, owner_email: str | None = None, interval_min: int = 360, test_email: bool = False) -> dict[str, Any]:
         """Advanced watch mode: compare current repo/user/org intelligence with last snapshot.
 
         v2: snapshots persist in the `watches` table (durable on the Render disk),
@@ -597,8 +597,16 @@ class RepoTraceAnalyzer:
 
         email_status = {"attempted": False, "sent": False}
         recipient = notify_email or os.getenv("WATCH_EMAIL_TO")
-        if previous and diff.get("has_changes") and recipient:
-            email_status = self._send_watch_email(recipient, current, diff)
+        if recipient and (test_email or (previous and diff.get("has_changes"))):
+            test_diff = diff
+            if test_email and not diff.get("has_changes"):
+                # Force a deliverable test alert so SMTP config can be verified
+                # without waiting for a real change.
+                test_diff = {**diff, "summary": ["TEST EMAIL — this is a manual SMTP verification, not a real change alert."]}
+            email_status = self._send_watch_email(recipient, current, test_diff)
+            email_status["test_mode"] = bool(test_email and not diff.get("has_changes"))
+        elif recipient:
+            email_status["reason"] = "No changes detected yet (baseline or unchanged); email only fires on real changes."
 
         return {
             "watch_id": watch_id,

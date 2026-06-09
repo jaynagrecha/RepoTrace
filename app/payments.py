@@ -113,7 +113,7 @@ class PaymentManager:
     async def _identity_for_request(self, request: Request) -> tuple[str, str]:
         from .auth import auth_manager
         ip = client_ip(request)
-        session = request.headers.get("x-session-token") or request.cookies.get("rt_session")
+        session = request.headers.get("x-repotrace-session") or request.headers.get("x-session-token") or request.cookies.get("rt_session")
         user = await auth_manager.user_from_session(session) if session else None
         identity = user["email"] if user else f"ip:{ip}"
         return identity, ip

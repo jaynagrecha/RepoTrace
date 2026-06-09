@@ -74,7 +74,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 def _session(request: Request) -> str | None:
-    return request.headers.get("x-session-token") or request.cookies.get("rt_session")
+    return request.headers.get("x-repotrace-session") or request.headers.get("x-session-token") or request.cookies.get("rt_session")
 
 
 # --------------------------------------------------------------------------- models
@@ -185,6 +185,7 @@ class WatchRequest(BaseModel):
     max_commits: int = Field(30, ge=1, le=120)
     concurrency: int = Field(3, ge=1, le=6)
     interval_min: int = Field(360, ge=30, le=10080)
+    test_email: bool = False
 
 
 # --------------------------------------------------------------------------- pages / health
@@ -433,7 +434,7 @@ async def watch(payload: WatchRequest, request: Request):
             payload.target, target_type=payload.target_type, notify_email=payload.notify_email,
             max_repos=payload.max_repos, max_files=payload.max_files, max_commits=payload.max_commits,
             concurrency=payload.concurrency, owner_email=(user or {}).get("email"),
-            interval_min=payload.interval_min)
+            interval_min=payload.interval_min, test_email=payload.test_email)
         await usage_manager.record(request, units=1, endpoint="watch")
         return result
     except Exception as e:

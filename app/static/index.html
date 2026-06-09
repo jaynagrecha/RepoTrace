@@ -180,6 +180,9 @@ https://gitlab.com/group/project"></textarea>
           <input id="watchConc" type="number" value="3" min="1" max="6" title="Concurrency"/>
           <button onclick="watchTarget()">Run Watch</button>
         </div>
+        <label class="muted small" style="display:flex;align-items:center;gap:7px;margin-top:8px;cursor:pointer">
+          <input type="checkbox" id="watchTestEmail" style="width:auto"/> Send a test email on this run (verifies SMTP even with no changes)
+        </label>
       </div>
     </div>
     <div id="radarOut" style="margin-top:14px"></div>
@@ -391,7 +394,9 @@ async function logoutUser(){
 function renderAuthStatus(d){
   const u=(d.user||{});
   const source=u.github_token_source==='server_org_env'?'server-side org token':(u.github_token_source==='legacy_user_token'?'legacy user token':'public default token');
-  authOut.innerHTML=`<span class="ok">Logged in as ${esc(u.email||'user')}</span> · Org: ${esc(u.org_name||u.org_domain||'-')} · Token route: <b>${esc(source)}</b> ${u.github_token_fingerprint?`(${esc(u.github_token_fingerprint)})`:''}`;
+  const orgUnlimited=true;
+  const badge=orgUnlimited?' <span class="conf-pill conf-high">unlimited org access</span>':'';
+  authOut.innerHTML=`<span class="ok">Logged in as ${esc(u.email||'user')}</span> · Org: ${esc(u.org_name||u.org_domain||'-')} · Token route: <b>${esc(source)}</b> ${u.github_token_fingerprint?`(${esc(u.github_token_fingerprint)})`:''}${badge}`;
 }
 async function checkAuthStatus(){
   try{const r=await fetch('/api/auth/status',{headers:userSessionHeaders()}); const d=await r.json(); if(d.authenticated) renderAuthStatus(d);}
@@ -1123,7 +1128,8 @@ async function watchTarget(){
       max_repos:+document.getElementById('watchMaxRepos').value,
       max_files:70,
       max_commits:30,
-      concurrency:+document.getElementById('watchConc').value
+      concurrency:+document.getElementById('watchConc').value,
+      test_email:document.getElementById('watchTestEmail').checked
     });
     renderWatch(d);
     tokenStatus();
@@ -1150,9 +1156,11 @@ function renderWatch(d){
       ${metric('Watch ID',d.watch_id||'-')}
       ${metric('First Scan',d.first_scan?'Yes':'No')}
       ${metric('Changes',diff.has_changes?'Detected':'None',diff.has_changes?'risk-HIGH':'risk-LOW')}
-      ${metric('Email',email.attempted?(email.sent?'Sent':'Failed'):'Not attempted')}
+      ${metric('Email',email.attempted?(email.sent?(email.test_mode?'Test Sent':'Sent'):'Failed'):'Not attempted')}
       ${metric('Snapshot',shortDate(current.created_at)||'-')}
     </div>
+    ${email.error?`<div class="report-note" style="margin-top:10px">Email error: ${esc(email.error)}</div>`:''}
+    ${(email.attempted===false&&email.reason)?`<div class="muted small" style="margin-top:8px">${esc(email.reason)}</div>`:''}
     <div class="watch-summary" style="margin-top:12px">
       ${metric('New Commits',newCommits.length,newCommits.length?'ok':'')}
       ${metric('New Files',newFiles.length,newFiles.length?'ok':'')}

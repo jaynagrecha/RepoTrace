@@ -49,20 +49,38 @@ async def _run_due_watches() -> None:
         await db.execute("UPDATE watches SET next_run = ?, last_run = ? WHERE watch_id = ?",
                          (next_run, now_iso, watch_id))
         try:
-            analyzer = RepoTraceAnalyzer(github_token=os.getenv("GITHUB_TOKEN"))
+            # Resolve the same token the owner would use in the request path:
+            # their org-domain token if configured, else the global GITHUB_TOKEN.
+            gh_token = os.getenv("GITHUB_TOKEN")
+            owner_email = w.get("owner_email")
+            if owner_email:
+                try:
+                    from .auth import _org_token_for_domain
+                    domain = owner_email.split("@", 1)[1] if "@" in owner_email else ""
+                    org_token, _ = _org_token_for_domain(domain)
+                    if org_token:
+                        gh_token = org_token
+                except Exception:
+                    pass
+            analyzer = RepoTraceAnalyzer(github_token=gh_token)
             # watch_target reads the stored snapshot, diffs, emails, and re-saves.
-            await analyzer.watch_target(
+            result = await analyzer.watch_target(
                 w["target_input"], target_type=w.get("target_type") or "auto",
                 notify_email=w.get("notify_email"), owner_email=w.get("owner_email"),
                 interval_min=interval,
             )
+            email = (result or {}).get("email", {})
+            if email.get("attempted"):
+                print(f"[scheduler] watch {watch_id}: email sent={email.get('sent')} "
+                      f"{('error='+str(email.get('error'))) if email.get('error') else ''}")
         except Exception as e:
-            # Never let one bad watch kill the loop; record nothing sensitive.
+            # Never let one bad watch kill the loop. Log the FULL reason so token
+            # / rate-limit / 404 problems are diagnosable.
             await db.execute(
                 "UPDATE watches SET last_run = ? WHERE watch_id = ?",
                 (now_iso, watch_id),
             )
-            print(f"[scheduler] watch {watch_id} failed: {type(e).__name__}")
+            print(f"[scheduler] watch {watch_id} failed: {type(e).__name__}: {str(e)[:300]}")
 
 
 async def _loop() -> None:

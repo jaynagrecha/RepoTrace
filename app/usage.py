@@ -90,11 +90,18 @@ class UsageManager:
         identity_key is the user's email when authenticated, else 'ip:<addr>'.
         """
         from .auth import auth_manager  # local import avoids circular dependency
-        session = request.headers.get("x-session-token") or request.cookies.get("rt_session")
+        session = request.headers.get("x-repotrace-session") or request.headers.get("x-session-token") or request.cookies.get("rt_session")
         user = await auth_manager.user_from_session(session) if session else None
         if user:
             return user["email"], user
         return f"ip:{client_ip(request)}", None
+
+    async def _user_has_org_token(self, user: Optional[dict]) -> bool:
+        if not user:
+            return False
+        from .auth import _org_token_for_domain
+        token, _ = _org_token_for_domain(user.get("org_domain") or "")
+        return bool(token)
 
     async def _available_credits(self, identity: str, user: Optional[dict], ip: str) -> int:
         if user:
@@ -114,18 +121,21 @@ class UsageManager:
         used = int(row["searches"]) if row else 0
         credits = await self._available_credits(identity, user, ip)
         admin = is_admin_request(request)
+        org_unlimited = user is not None
+        unlimited = admin or org_unlimited
         status = {
             "public_mode": self.public_mode,
             "identity": identity if not identity.startswith("ip:") else "anonymous",
             "authenticated": user is not None,
+            "org_unlimited": org_unlimited,
             "date_utc": day,
             "free_searches_per_day": self.free_limit,
             "used_today": used,
-            "remaining_today": None if (not self.public_mode or admin) else max(0, self.free_limit - used),
+            "remaining_today": None if (not self.public_mode or unlimited) else max(0, self.free_limit - used),
             "paid_credits": credits,
             "rate_limit_per_minute": self.burst_limit,
             "admin_authenticated": admin,
-            "access_mode": "admin_unlimited" if admin else ("public_limited" if self.public_mode else "local_unlimited"),
+            "access_mode": "admin_unlimited" if admin else ("org_unlimited" if org_unlimited else ("public_limited" if self.public_mode else "local_unlimited")),
             "payment": self._payment_block(),
         }
         return status
@@ -157,6 +167,12 @@ class UsageManager:
         if is_admin_request(request):
             return UsageDecision(True, "admin_unlimited", None, 0, limit, self.public_mode)
 
+        # Any successfully authenticated user is an organization user and gets
+        # unlimited access. Orgs supply their own GitHub/VT tokens; free/limited
+        # access is only for anonymous (non-logged-in) visitors.
+        if user:
+            return UsageDecision(True, "org_unlimited", None, 0, limit, self.public_mode)
+
         # Burst check over the last 60s for this identity.
         recent = await db.fetchone(
             "SELECT COUNT(*) AS c FROM usage_events WHERE identity = ? AND ts >= ?",
@@ -184,6 +200,8 @@ class UsageManager:
         if is_admin_request(request):
             return await self.status_for_request(request)
         identity, user = await self._identity(request)
+        if user:
+            return await self.status_for_request(request)
         ip = client_ip(request)
         day = today_key()
         now = now_ts()
