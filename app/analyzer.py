@@ -4,44 +4,35 @@ import json
 import os
 import re
 import smtplib
-from email.message import EmailMessage
-from pathlib import Path
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from email.message import EmailMessage
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from .github_client import GitHubClient
 from .gitlab_client import GitLabClient
 from .vt_client import VirusTotalClient
 from .parsers import GitHubTarget, parse_github_url
+from .modules.ioc import extract_iocs, empty_iocs
+from .modules import risk as risk_engine
+from . import storage as storage_module
 
-URL_RE = re.compile(r"https?://[^\s\"\'<>]+", re.I)
-EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-IPV4_RE = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
-# Conservative TLD allow-list so JS/Python dotted identifiers like document.addEventListener
-# or request.form.get are not misclassified as domains. Add more TLDs here if needed.
-VALID_TLDS = {
-    "com","org","net","io","ai","dev","app","in","co","co.in","gov","gov.in","edu","mil",
-    "info","biz","me","us","uk","ca","de","fr","jp","cn","ru","au","br","za","sg","nl",
-    "xyz","site","online","cloud","tech","security","software","systems","digital","tools",
-    "github","gitlab","bitbucket"
-}
-HOST_ASSIGNMENT_RE = re.compile(
-    r"(?i)(?:host|hostname|domain|url|uri|endpoint|server|callback|webhook|redirect_uri|base_url)\s*[:=]\s*[\"']?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/:?\"'\s]|$)"
+
+def _ext(path: str) -> str:
+    i = path.rfind(".")
+    return path[i:].lower() if i != -1 else ""
+
+
+PRIORITY_PATHS = (
+    ".env", ".npmrc", "config", "settings", "secret", "credential", "token", "auth", "login",
+    ".github/workflows", "Dockerfile", "docker-compose", "requirements.txt", "package.json",
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "pom.xml", "build.gradle", "go.mod", "go.sum",
+    "terraform", "tfvars", "kubernetes", "k8s", "helm", "deploy", "scripts", "install", "setup",
 )
-IP_ASSIGNMENT_RE = re.compile(
-    r"(?i)(?:ip|host|hostname|server|addr|address|endpoint)\s*[:=]\s*[\"']?((?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d))(?:[/:?\"'\s]|$)"
-)
-SECRET_PATTERNS = {
-    "GitHub token": re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}", re.I),
-    "AWS access key": re.compile(r"AKIA[0-9A-Z]{16}"),
-    "Google API key": re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),
-    "Private key block": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
-    "Slack token": re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
-    "Generic bearer token": re.compile(r"(?i)bearer\s+[a-z0-9._\-]{20,}"),
-    "Password assignment": re.compile(r"(?i)(password|passwd|pwd|secret|api[_-]?key|token)\s*[=:]\s*['\"][^'\"]{6,}['\"]"),
-}
+INTERESTING_EXTS = {".ps1", ".sh", ".bat", ".cmd", ".js", ".vbs", ".hta", ".py", ".rb", ".php", ".go", ".java", ".ts", ".tsx", ".jsx", ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg"}
+TEXT_EXTS = INTERESTING_EXTS | {".txt", ".md", ".rst", ".csv", ".xml", ".html", ".css", ".scss", ".lock"}
+
 DIFF_SUSPICIOUS_PATTERNS = {
     "Secret/token introduced": re.compile(r"(?i)(password|passwd|pwd|secret|api[_-]?key|token)\s*[=:]\s*['\"][^'\"]{6,}['\"]|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}"),
     "Private key block introduced": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
@@ -50,123 +41,10 @@ DIFF_SUSPICIOUS_PATTERNS = {
     "Curl/wget pipe to shell introduced": re.compile(r"(?i)(curl|wget).{0,80}\|.{0,40}(bash|sh|powershell|pwsh)"),
     "PowerShell download cradle introduced": re.compile(r"(?i)(invoke-webrequest|iwr|invoke-expression|iex|downloadstring|webclient)"),
 }
-PRIORITY_PATHS = (
-    ".env", ".npmrc", "config", "settings", "secret", "credential", "token", "auth", "login",
-    ".github/workflows", "Dockerfile", "docker-compose", "requirements.txt", "package.json",
-    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "pom.xml", "build.gradle", "go.mod", "go.sum",
-    "terraform", "tfvars", "kubernetes", "k8s", "helm", "deploy", "scripts", "install", "setup"
-)
-INTERESTING_EXTS = {".ps1", ".sh", ".bat", ".cmd", ".js", ".vbs", ".hta", ".py", ".rb", ".php", ".go", ".java", ".ts", ".tsx", ".jsx", ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg"}
-TEXT_EXTS = INTERESTING_EXTS | {".txt", ".md", ".rst", ".csv", ".xml", ".html", ".css", ".scss", ".lock"}
-
-
-def _ext(path: str) -> str:
-    i = path.rfind(".")
-    return path[i:].lower() if i != -1 else ""
-
-
-def _strip_ioc_token(value: str) -> str:
-    return value.strip().strip("`'\"()[]{}<>,.;")
-
-
-def _domain_from_url(u: str) -> str | None:
-    try:
-        cleaned = _strip_ioc_token(u)
-        host = urlparse(cleaned).netloc.lower().split("@")[ -1 ].split(":")[0]
-        return host if _is_valid_domain(host) else None
-    except Exception:
-        return None
-
-
-def _is_valid_domain(domain: str) -> bool:
-    d = _strip_ioc_token(domain).lower().rstrip('.')
-    if not d or '_' in d or '..' in d or len(d) > 253:
-        return False
-    labels = d.split('.')
-    if len(labels) < 2:
-        return False
-    # Support second-level country TLDs like co.in/gov.in.
-    last = labels[-1]
-    last2 = '.'.join(labels[-2:]) if len(labels) >= 2 else last
-    if last not in VALID_TLDS and last2 not in VALID_TLDS:
-        return False
-    for label in labels:
-        if not label or label.startswith('-') or label.endswith('-'):
-            return False
-        if not re.fullmatch(r"[a-z0-9-]{1,63}", label):
-            return False
-    return True
-
-
-def _is_public_ipv4(ip: str) -> bool:
-    try:
-        import ipaddress
-        obj = ipaddress.ip_address(ip)
-        return obj.version == 4 and not (obj.is_private or obj.is_loopback or obj.is_link_local or obj.is_multicast or obj.is_reserved or obj.is_unspecified)
-    except Exception:
-        return False
 
 
 def hash_bytes(data: bytes) -> dict[str, str]:
     return {"md5": hashlib.md5(data).hexdigest(), "sha1": hashlib.sha1(data).hexdigest(), "sha256": hashlib.sha256(data).hexdigest()}
-
-
-def extract_iocs(text: str) -> dict[str, list[str]]:
-    """Extract high-confidence IOCs only.
-
-    Earlier versions used a broad dotted-string regex, which created false positives from
-    code such as JSON.stringify, request.form.get, and document.addEventListener.
-    This version is intentionally conservative: domains come from URLs, email domains,
-    and explicit host/url/domain assignments. IPv4s come from URL hosts or explicit
-    IP assignments, not arbitrary version-looking strings.
-    """
-    raw_urls = [_strip_ioc_token(u) for u in URL_RE.findall(text)]
-    urls = []
-    domains = set()
-    ipv4 = set()
-    for u in raw_urls:
-        parsed = urlparse(u)
-        host = (parsed.hostname or '').lower()
-        if host:
-            urls.append(u)
-            if _is_public_ipv4(host):
-                ipv4.add(host)
-            elif _is_valid_domain(host):
-                domains.add(host)
-
-    raw_emails = [_strip_ioc_token(e) for e in EMAIL_RE.findall(text)]
-    emails = []
-    for e in raw_emails:
-        domain = e.split('@')[-1].lower() if '@' in e else ''
-        # GitHub noreply addresses are commit identity noise, not infrastructure IOCs.
-        if domain in {"users.noreply.github.com", "noreply.github.com"}:
-            continue
-        emails.append(e)
-        if _is_valid_domain(domain):
-            domains.add(domain)
-
-    for m in HOST_ASSIGNMENT_RE.findall(text):
-        d = _strip_ioc_token(m).lower()
-        if _is_valid_domain(d):
-            domains.add(d)
-
-    for m in IP_ASSIGNMENT_RE.findall(text):
-        ip = _strip_ioc_token(m)
-        if _is_public_ipv4(ip):
-            ipv4.add(ip)
-
-    secrets = []
-    for name, rgx in SECRET_PATTERNS.items():
-        if rgx.search(text):
-            secrets.append(name)
-
-    return {
-        "urls": sorted(set(urls))[:500],
-        "emails": sorted(set(emails))[:500],
-        "ipv4": sorted(ipv4)[:500],
-        "domains": sorted(domains)[:500],
-        "secret_pattern_hits": sorted(set(secrets)),
-    }
 
 
 class RepoTraceAnalyzer:
@@ -508,7 +386,7 @@ class RepoTraceAnalyzer:
             result["sample_text"] = text[:25000]
             result["content_type_guess"] = "text"
         else:
-            result["iocs"] = {"urls": [], "emails": [], "ipv4": [], "domains": [], "secret_pattern_hits": []}
+            result["iocs"] = empty_iocs()
             result["content_type_guess"] = "binary/non-text"
         return result
 
@@ -560,7 +438,15 @@ class RepoTraceAnalyzer:
         contributors_t = self._safe_get(f"/repos/{owner}/{repo}/contributors", [], params={"per_page": 30})
         releases_t = self._safe_get(f"/repos/{owner}/{repo}/releases", [], params={"per_page": 20})
         commits_t = self._safe_get(f"/repos/{owner}/{repo}/commits", [], params={"per_page": effective_max_commits, "sha": branch})
-        languages, contributors, releases, commits = await asyncio.gather(languages_t, contributors_t, releases_t, commits_t)
+        owner_t = self._safe_get(f"/users/{owner}", {})
+        languages, contributors, releases, commits, owner_profile = await asyncio.gather(
+            languages_t, contributors_t, releases_t, commits_t, owner_t)
+        # Surface the owner account's GitHub join date onto the repo meta so the
+        # snapshot can show how old the hosting account is (a new account hosting
+        # payloads is a useful triage signal).
+        if isinstance(owner_profile, dict) and owner_profile.get("created_at"):
+            repo_meta["owner_created_at"] = owner_profile.get("created_at")
+            repo_meta["owner_type"] = owner_profile.get("type")
 
         selected_files = self._select_files_for_inventory(files, effective_max_files)
         file_results = await self._bounded_gather([lambda f=f: self._analyze_file(owner, repo, branch, f, adaptive["max_file_bytes"]) for f in selected_files], adaptive["file_concurrency"])
@@ -669,27 +555,45 @@ class RepoTraceAnalyzer:
             "summary": self._account_scan_summary(profile, repos, ok_results, cross_repo),
         }
 
-    async def watch_target(self, target_input: str, target_type: str = "auto", notify_email: str | None = None, max_repos: int = 50, max_files: int = 70, max_commits: int = 30, concurrency: int = 3) -> dict[str, Any]:
-        """Advanced watch mode: compare current repo/user/org intelligence with last snapshot."""
+    async def watch_target(self, target_input: str, target_type: str = "auto", notify_email: str | None = None, max_repos: int = 50, max_files: int = 70, max_commits: int = 30, concurrency: int = 3, owner_email: str | None = None, interval_min: int = 360) -> dict[str, Any]:
+        """Advanced watch mode: compare current repo/user/org intelligence with last snapshot.
+
+        v2: snapshots persist in the `watches` table (durable on the Render disk),
+        so the background scheduler (Phase 5) can re-run watches and the previous
+        snapshot survives restarts.
+        """
+        from .db import db
         target_input = target_input.strip()
         if not target_input:
             raise ValueError("Watch target is required")
 
         current = await self._build_watch_snapshot(target_input, target_type, max_repos, max_files, max_commits, concurrency)
         watch_id = self._watch_id(current["target_key"])
-        watch_dir = Path("data/watches")
-        watch_dir.mkdir(parents=True, exist_ok=True)
-        watch_file = watch_dir / f"{watch_id}.json"
 
+        row = await db.fetchone("SELECT snapshot FROM watches WHERE watch_id = ?", (watch_id,))
         previous = None
-        if watch_file.exists():
+        if row and row.get("snapshot"):
             try:
-                previous = json.loads(watch_file.read_text(encoding="utf-8"))
+                previous = json.loads(row["snapshot"])
             except Exception:
                 previous = None
 
         diff = self._diff_watch_snapshots(previous, current)
-        watch_file.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+        now = datetime.now(timezone.utc)
+        next_run = now.replace(microsecond=0).isoformat()
+        async with db.transaction() as conn:
+            await conn.execute(
+                """INSERT INTO watches(watch_id, owner_email, target_input, target_type, notify_email,
+                                       enabled, interval_min, snapshot, last_run, next_run, created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(watch_id) DO UPDATE SET
+                       owner_email=excluded.owner_email, notify_email=excluded.notify_email,
+                       target_type=excluded.target_type, interval_min=excluded.interval_min,
+                       snapshot=excluded.snapshot, last_run=excluded.last_run""",
+                (watch_id, owner_email, target_input, target_type, notify_email,
+                 1, int(interval_min), json.dumps(current, ensure_ascii=False),
+                 now.isoformat(), next_run, now.isoformat()),
+            )
 
         email_status = {"attempted": False, "sent": False}
         recipient = notify_email or os.getenv("WATCH_EMAIL_TO")
@@ -703,7 +607,7 @@ class RepoTraceAnalyzer:
             "current": current,
             "diff": diff,
             "email": email_status,
-            "snapshot_saved_to": str(watch_file),
+            "snapshot_saved_to": f"db:watches/{watch_id}",
         }
 
     async def _build_watch_snapshot(self, target_input: str, target_type: str, max_repos: int, max_files: int, max_commits: int, concurrency: int) -> dict[str, Any]:
@@ -1113,8 +1017,57 @@ class RepoTraceAnalyzer:
 
     async def analyst_report_html(self, owner: str, repo: str, branch: str | None = None, max_files: int = 100, max_commits: int = 60) -> str:
         md = await self.analyst_report(owner, repo, branch=branch, max_files=max_files, max_commits=max_commits)
-        body = "".join(f"<p>{line}</p>" if line and not line.startswith('#') and not line.startswith('-') else (f"<h2>{line.lstrip('# ').strip()}</h2>" if line.startswith('#') else f"<li>{line[1:].strip()}</li>" if line.startswith('-') else "") for line in md.splitlines())
-        return f"""<!doctype html><html><head><meta charset='utf-8'><title>RepoTrace Report</title><style>body{{font-family:Segoe UI,Arial,sans-serif;background:#08111f;color:#e9f1ff;padding:32px}}h1,h2{{color:#6ee7ff}}li,p{{line-height:1.5}}li{{margin:6px 0}}</style></head><body>{body}</body></html>"""
+        body = self._markdown_to_html(md)
+        return f"""<!doctype html><html><head><meta charset='utf-8'><title>RepoTrace Report</title><style>body{{font-family:Segoe UI,Arial,sans-serif;background:#08111f;color:#e9f1ff;padding:32px;max-width:900px;margin:0 auto}}h1,h2{{color:#6ee7ff}}h1{{border-bottom:1px solid #1d2d44;padding-bottom:8px}}ul{{padding-left:22px}}li,p{{line-height:1.6}}li{{margin:4px 0}}code{{background:#11233b;padding:1px 5px;border-radius:4px}}</style></head><body>{body}</body></html>"""
+
+    @staticmethod
+    def _markdown_to_html(md: str) -> str:
+        """Minimal but correct markdown renderer for the report subset we emit.
+
+        Handles h1/h2/h3, bullet lists (grouped into <ul>), nested indented
+        bullets, and paragraphs. Replaces the previous per-line heuristic that
+        mangled any line containing a leading '-' mid-structure.
+        """
+        import html as _html
+
+        def inline(text: str) -> str:
+            esc = _html.escape(text)
+            esc = re.sub(r"`([^`]+)`", r"<code>\1</code>", esc)
+            esc = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", esc)
+            return esc
+
+        lines = md.splitlines()
+        out: list[str] = []
+        in_list = False
+
+        def close_list():
+            nonlocal in_list
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+
+        for raw in lines:
+            line = raw.rstrip()
+            stripped = line.strip()
+            if not stripped:
+                close_list()
+                continue
+            heading = re.match(r"^(#{1,3})\s+(.*)$", stripped)
+            bullet = re.match(r"^[-*]\s+(.*)$", stripped)
+            if heading:
+                close_list()
+                level = len(heading.group(1))
+                out.append(f"<h{level}>{inline(heading.group(2))}</h{level}>")
+            elif bullet:
+                if not in_list:
+                    out.append("<ul>")
+                    in_list = True
+                out.append(f"<li>{inline(bullet.group(1))}</li>")
+            else:
+                close_list()
+                out.append(f"<p>{inline(stripped)}</p>")
+        close_list()
+        return "\n".join(out)
 
     def detect_suspicious_diff(self, added_text: str, filename: str) -> list[dict[str, str]]:
         findings = []
@@ -1159,7 +1112,7 @@ class RepoTraceAnalyzer:
             result["sample_text"] = text[:25000]
             result["content_type_guess"] = "text"
         else:
-            result["iocs"] = {"urls": [], "emails": [], "ipv4": [], "domains": [], "secret_pattern_hits": []}
+            result["iocs"] = empty_iocs()
             result["content_type_guess"] = "binary/non-text"
         return result
 
@@ -1240,6 +1193,8 @@ class RepoTraceAnalyzer:
             "name": r.get("name"),
             "full_name": r.get("full_name"),
             "owner": r.get("owner", {}).get("login") if isinstance(r.get("owner"), dict) else None,
+            "owner_created_at": r.get("owner_created_at"),
+            "owner_type": r.get("owner_type"),
             "html_url": r.get("html_url") or r.get("web_url"),
             "description": r.get("description"),
             "created_at": r.get("created_at"),
@@ -1321,50 +1276,21 @@ class RepoTraceAnalyzer:
         return findings[:160]
 
     def _risk_score(self, repo: dict, files: list[dict], commits: list[dict], iocs: dict, findings: list[dict], infra: dict) -> dict[str, Any]:
-        score, reasons, factors = 0, [], []
-        def add(points: int, reason: str, category: str):
-            nonlocal score
-            score += points
-            reasons.append(reason)
-            factors.append({"category": category, "points": points, "reason": reason})
-        if not repo.get("license"): add(5, "No detected license", "governance")
-        if repo.get("archived"): add(3, "Repository is archived", "repo_state")
-        secret_hits = sum(1 for f in files if f.get("iocs", {}).get("secret_pattern_hits"))
-        if secret_hits: add(40, f"Secret-like patterns found in {secret_hits} analyzed file(s)", "secrets")
-        if len(iocs.get("urls", [])) > 25: add(8, "Large number of external URLs found", "external_infra")
-        if len(infra.get("external_services", [])) > 4: add(8, "Multiple external services referenced", "external_infra")
-        unsigned = sum(1 for c in commits if c.get("verified") is False)
-        if unsigned >= 5: add(8, "Multiple recent commits are unsigned/unverified", "commit_trust")
-        if any(f.get("type") == "sensitive_path_changed" for f in findings): add(15, "Sensitive paths changed recently", "change_risk")
-        if any(f.get("type") == "suspicious_added_content" for f in findings): add(25, "Suspicious code/content introduced in recent changes", "change_risk")
-        if any(f.get("type") == "interesting_file" for f in findings): add(5, "Interesting executable/config files present", "file_profile")
-        vt_mal = sum(1 for f in files if (f.get("vt") or {}).get("verdict") == "malicious")
-        vt_susp = sum(1 for f in files if (f.get("vt") or {}).get("verdict") == "suspicious")
-        if vt_mal: add(60, f"VirusTotal reports {vt_mal} file(s) as malicious", "virustotal")
-        elif vt_susp: add(25, f"VirusTotal reports {vt_susp} file(s) as suspicious", "virustotal")
-        level = "HIGH" if score >= 60 else "MEDIUM" if score >= 30 else "LOW"
-        if not factors:
-            reasons = ["No major suspicious indicators in analyzed subset"]
-            factors = [{"category": "baseline", "points": 0, "reason": reasons[0]}]
-        return {"score": min(score, 100), "level": level, "reasons": reasons, "factors": factors, "explanation": self._attack_narrative({"risk": {"level": level, "score": min(score, 100), "reasons": reasons}, "suspicious_findings": findings, "iocs": iocs, "infra_links": infra})}
+        # Delegates to the v2 confidence-tiered engine so a lone low-confidence
+        # secret hit cannot dominate the score. Adds an `explanation` narrative
+        # for backward compatibility with the dashboard.
+        result = risk_engine.score_risk(repo, files, commits, iocs, findings, infra)
+        result["explanation"] = risk_engine.attack_narrative({
+            "risk": result,
+            "suspicious_findings": findings,
+            "iocs": iocs,
+            "infra_links": infra,
+            "files_analyzed": files,
+        })
+        return result
 
     def _attack_narrative(self, r: dict[str, Any]) -> str:
-        risk = r.get("risk", {})
-        findings = r.get("suspicious_findings", [])
-        iocs = r.get("iocs", {})
-        infra = r.get("infra_links", {})
-        parts = [f"This repository currently profiles as {risk.get('level', 'UNKNOWN')} risk with score {risk.get('score', '-')}/100."]
-        if any(f.get("type") == "secret_pattern" for f in findings) or iocs.get("secret_pattern_hits"):
-            parts.append("Secret-like content should be manually validated immediately, because regex detections can include both real credentials and test strings.")
-        if any(f.get("type") in {"sensitive_path_changed", "suspicious_added_content"} for f in findings):
-            parts.append("Recent changes touched sensitive paths or introduced suspicious constructs, so commit-level review is recommended.")
-        if any((f.get("vt") or {}).get("verdict") == "malicious" for f in r.get("files_analyzed", []) or []):
-            parts.append("One or more repository files have malicious VirusTotal hash reputation and should be treated as high priority evidence.")
-        if infra.get("external_services"):
-            parts.append("The repo references external services/infrastructure that may matter for supply-chain or callback analysis.")
-        if not findings:
-            parts.append("No strong suspicious findings were detected in the scanned subset, but large repos may require targeted follow-up.")
-        return " ".join(parts)
+        return risk_engine.attack_narrative(r)
 
 
     def _bulk_summary(self, r: dict[str, Any]) -> dict[str, Any]:

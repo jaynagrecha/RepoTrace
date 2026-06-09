@@ -1,6 +1,17 @@
 fastapi==0.115.6
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.32.1
 httpx==0.28.1
-pydantic==2.10.4
 python-dotenv==1.0.1
+python-multipart==0.0.19
+pydantic==2.10.4
+
+# v2 persistence
+aiosqlite==0.20.0
+
+# Optional: full ICANN public-suffix coverage for IOC domain validation.
+# app/modules/ioc.py uses it automatically if present, else falls back to a
+# vendored suffix set (covers common + abuse-heavy TLDs).
+publicsuffix2==2.20191221
+
+# UPI QR generation for /api/payment-qr
 qrcode[pil]==7.4.2

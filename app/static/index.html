@@ -18,6 +18,35 @@
 .report-modal textarea{min-height:120px}
 .report-template-box{min-height:260px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}
 .report-note{padding:10px;border:1px solid rgba(255,209,102,.28);background:rgba(255,209,102,.08);border-radius:12px;color:#ffdca3;margin:10px 0}
+/* ── v2 redesign additions ───────────────────────────────────────── */
+.risk-badge{display:flex;align-items:center;gap:18px;padding:18px 20px;border-radius:20px;border:1px solid var(--line);background:#08111f;margin-bottom:14px}
+.risk-dial{width:96px;height:96px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;flex-shrink:0;position:relative}
+.risk-dial b{font-size:30px;line-height:1}.risk-dial span{font-size:11px;letter-spacing:.1em;opacity:.85}
+.risk-dial.HIGH{background:radial-gradient(circle at 30% 30%,rgba(255,107,107,.4),rgba(255,107,107,.12));border:2px solid var(--bad);color:#ffd6d6}
+.risk-dial.MEDIUM{background:radial-gradient(circle at 30% 30%,rgba(255,209,102,.4),rgba(255,209,102,.12));border:2px solid var(--warn);color:#fff1c7}
+.risk-dial.LOW{background:radial-gradient(circle at 30% 30%,rgba(114,239,154,.4),rgba(114,239,154,.12));border:2px solid var(--ok);color:#d6ffe2}
+.risk-meta{flex:1}.risk-meta h2{margin:0 0 4px 0;font-size:24px}
+.conf-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.03em}
+.conf-high{background:rgba(114,239,154,.16);color:#9bf5bd;border:1px solid rgba(114,239,154,.4)}
+.conf-medium{background:rgba(255,209,102,.16);color:#ffe09a;border:1px solid rgba(255,209,102,.4)}
+.conf-low{background:rgba(145,164,189,.16);color:#b8c8de;border:1px solid rgba(145,164,189,.4)}
+.factor-bar{height:6px;border-radius:999px;background:#0b1726;overflow:hidden;margin-top:6px}
+.factor-bar i{display:block;height:100%;border-radius:999px}
+.factor-bar i.high{background:var(--bad)}.factor-bar i.medium{background:var(--warn)}.factor-bar i.low{background:var(--muted)}
+.filterbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0;padding:10px;background:#07101b;border:1px solid var(--line);border-radius:12px}
+.filterbar input,.filterbar select{padding:8px 10px;font-size:13px;border-radius:10px}
+.chip-toggle{cursor:pointer;padding:6px 11px;border-radius:999px;background:#0b2033;border:1px solid rgba(110,231,255,.2);font-size:12px;user-select:none}
+.chip-toggle.on{background:linear-gradient(135deg,#1378ff,#00d4ff);color:#fff;border:0}
+.collapse-head{display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.collapse-head .chev{transition:transform .2s ease}.collapsed .chev{transform:rotate(-90deg)}
+.collapse-body{margin-top:14px}.collapsed .collapse-body{display:none}
+.skeleton{background:linear-gradient(90deg,#0b1726 25%,#13243a 50%,#0b1726 75%);background-size:200% 100%;animation:shimmer 1.3s infinite;border-radius:10px;height:14px;margin:8px 0}
+.skeleton.lg{height:80px}.skeleton.med{height:34px}@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.sev-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.sev-dot.high{background:var(--bad)}.sev-dot.medium{background:var(--warn)}.sev-dot.low{background:var(--muted)}
+.collapsible-section .ioc-list.clamped{max-height:120px;overflow:hidden;position:relative}
+.show-more{cursor:pointer;color:var(--accent);font-size:12px;margin-top:8px;display:inline-block}
+tr.hidden-row{display:none}
 </style>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
@@ -25,9 +54,15 @@
 <div class="wrap">
   <div class="hero">
     <div><h1>RepoTrace</h1><div class="tag">GitHub-first repository intelligence + public-ready OSINT radar</div></div>
-    <div class="ver"><span class="pill">v0.28 RepoTrace</span><span id="token" class="pill muted">Checking token…</span></div>
+    <div class="ver"><span class="pill">v2.0 RepoTrace</span><span id="token" class="pill muted">Checking token…</span></div>
   </div>
 
+  <div class="card collapsed" id="accountBillingWrap">
+    <div class="collapse-head" onclick="document.getElementById('accountBillingWrap').classList.toggle('collapsed')">
+      <h3 style="margin:0">Account &amp; Billing</h3>
+      <span class="muted small">Login · org token routing · usage limits · payments · admin <span class="chev">▾</span></span>
+    </div>
+    <div class="collapse-body">
   <div class="card" id="accountPanel">
     <div class="section-title"><h3>Enterprise / Org Login</h3><span class="pill">optional · server-side org token routing</span></div>
     <p class="muted small">Enterprise users can register/login with an organization email. If RepoTrace has a server-side token configured for that email domain, logged-in scans use that org token instead of the public RepoTrace token. Users do not need to paste GitHub secrets into the browser.</p>
@@ -65,6 +100,8 @@
         <div style="margin-top:10px"><button class="secondary" onclick="loadAdminUsage()">Load Admin Usage</button></div>
         <div id="adminOut" style="margin-top:12px"></div>
       </div>
+    </div>
+  </div>
     </div>
   </div>
 
@@ -294,7 +331,7 @@ let currentBulkData=null;
 let currentGraphPairs=[];
 let currentBulkFilter=null;
 const esc=(s)=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-const fmtDate=(v)=>{ if(!v) return '-'; try{return new Date(v).toISOString().slice(0,10)}catch(e){return v} };
+const fmtDate=(v)=>{ if(!v) return '-'; return shortDate(v)||'-'; };
 function arr(a){return (a&&a.length)?a.map(x=>`<span class="pill">${esc(x)}</span>`).join(''):'<span class="muted">None</span>'}
 function asArray(x){return Array.isArray(x)?x:(x?Object.values(x).flat():[])}
 function normalizeList(data){
@@ -608,7 +645,13 @@ function openGitHubReportHelp(){
 }
 
 
-async function analyze(){const url=document.getElementById('url').value.trim();document.getElementById('results').classList.remove('hidden');document.getElementById('status').innerHTML='<span class="loader">Analyzing…</span>';document.getElementById('dashboard').innerHTML='<div class="loader">Scanning repository…</div>';try{lastData=await post('/api/analyze',{url,max_files:+maxFiles.value,max_commits:+maxCommits.value});render(lastData);document.getElementById('status').innerHTML='<span class="ok">Done.</span>';document.getElementById('results')?.scrollIntoView({behavior:'smooth'});tokenStatus()}catch(e){if(e.status===429){pendingPaidRetry=analyze;document.getElementById('status').innerHTML=paywallHtml(e)}else{document.getElementById('status').innerHTML=`<span class="bad">${esc(e.message)}</span>`}document.getElementById('dashboard').innerHTML=''}}
+async function analyze(){const url=document.getElementById('url').value.trim();document.getElementById('results').classList.remove('hidden');document.getElementById('status').innerHTML='<span class="loader">Analyzing…</span>';showScanSkeleton();try{lastData=await post('/api/analyze',{url,max_files:+maxFiles.value,max_commits:+maxCommits.value});render(lastData);document.getElementById('status').innerHTML='<span class="ok">Done.</span>';document.getElementById('results')?.scrollIntoView({behavior:'smooth'});tokenStatus()}catch(e){if(e.status===429){pendingPaidRetry=analyze;document.getElementById('status').innerHTML=paywallHtml(e)}else{document.getElementById('status').innerHTML=`<span class="bad">${esc(e.message)}</span>`}document.getElementById('dashboard').innerHTML=''}}
+function showScanSkeleton(){
+  const sk=n=>Array.from({length:n}).map(()=>'<div class="skeleton"></div>').join('');
+  document.getElementById('dashboard').innerHTML='<div class="dash">'+Array.from({length:5}).map(()=>'<div class="metric"><div class="skeleton med"></div></div>').join('')+'</div>';
+  ['snapshot','risk','findings','infra','iocs','repoTree'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='<div class="skeleton lg"></div>'+sk(3);});
+  const f=document.getElementById('files');if(f)f.innerHTML='<div class="skeleton med"></div>'+sk(6);
+}
 function render(r){if(r.target_type==='user'){renderUser(r);return}const s=r.snapshot||{},risk=r.risk||{},perf=r.adaptive_scan||{};document.getElementById('scanMode').innerText=(perf.mode||'user')+' · '+(perf.strategy||'metadata');document.getElementById('dashboard').innerHTML=[metric('Risk Score',`${risk.level||'INFO'} ${risk.score??''}`,`risk-${risk.level}`),metric('Files Analyzed',`${perf.files_analyzed??0}/${perf.total_files_discovered??0}`),metric('Directories',perf.total_dirs_discovered??0),metric('Commits Checked',perf.commits_selected_for_detail??0),metric('Runtime',perf.elapsed_ms?`${perf.elapsed_ms} ms`:'-')].join('');document.getElementById('adaptive').innerHTML=perf.mode?`Mode <b>${esc(perf.mode)}</b> · files hashed <b>${esc(perf.files_hashed??0)}</b> · VT checked <b>${esc(perf.vt_files_checked??0)}</b> · workers files/commits <b>${esc(perf.file_concurrency)}/${esc(perf.commit_concurrency)}</b> · max bytes/file <b>${esc(perf.max_file_bytes)}</b> · ${esc(perf.rate_limit_tip||'')}`:'';renderSnapshot(s);renderRisk(risk);renderTree(r.tree||{});renderExtra(r);renderInfra(r.infra_links||{});renderIocs(r.iocs||{});renderFiles(r.files_analyzed||[]);renderCommits(r.commits||[]);renderFindings(r.suspicious_findings||[]);renderRepoAttackGraph(r);let o=ownerRepoFromData();['cmpOwner','histOwner'].forEach(id=>document.getElementById(id).value=o.owner||'');['cmpRepo','histRepo'].forEach(id=>document.getElementById(id).value=o.repo||'');histBranch.value=o.branch||''}
 function renderUser(r){
   const u=r.user||{}, repos=r.repositories||[];
@@ -630,7 +673,8 @@ function renderUser(r){
   const profileOrder=['platform','type','id','login','username','name','html_url','bio','description','organization','location','public_email','website_url','avatar_url','created_at','last_activity_at','last_activity_on','state','visibility','full_path','parent_id','private_profile','total_stars_received','total_forks','languages_observed','public_project_visibility'];
   document.getElementById('snapshot').innerHTML=profileOrder.filter(k=>u[k]!==undefined && u[k]!==null && u[k]!=='' && !(Array.isArray(u[k])&&u[k].length===0)).map(k=>{
     const v=u[k];
-    const val=Array.isArray(v)?v.join(', '):(typeof v==='object'?JSON.stringify(v):v);
+    const isDate=/_at$|_on$/.test(k);
+    const val=isDate?shortDate(v):(Array.isArray(v)?v.join(', '):(typeof v==='object'?JSON.stringify(v):v));
     return `<div class="kv"><b>${esc(k)}</b><span>${k==='html_url'||k==='avatar_url'||k==='website_url'?`<a target="_blank" href="${esc(val)}">${esc(val)}</a>`:esc(val)}</span></div>`
   }).join('') || '<div class="empty">No public profile fields returned.</div>';
   document.getElementById('risk').innerHTML=`<span class="muted">Namespace/user-level scan only. Open a repository/project for deep file, tree, commit, IOC, and risk analysis.</span>`;
@@ -657,14 +701,80 @@ function renderUser(r){
   document.getElementById('iocs').innerHTML='<div class="empty">Open a specific repo/project URL to extract IOCs.</div>';
   document.getElementById('infra').innerHTML='<div class="empty">Open a specific repo/project URL to build infra links.</div>';
 }
-function shortDate(v){return v?String(v).replace('T',' ').replace('Z','').slice(0,16):''}
+function shortDate(v){
+  if(!v) return '';
+  // Accept ISO strings and unix-epoch seconds. Render in IST (Asia/Kolkata).
+  let d;
+  if(typeof v==='number'||/^\d{10,13}$/.test(String(v))){
+    const n=Number(v); d=new Date(n<1e12?n*1000:n);
+  } else { d=new Date(v); }
+  if(isNaN(d)) return String(v);
+  try{
+    return new Intl.DateTimeFormat('en-IN',{
+      day:'2-digit',month:'short',year:'numeric',
+      hour:'2-digit',minute:'2-digit',hour12:true,
+      timeZone:'Asia/Kolkata'
+    }).format(d).replace(',','')+' IST';
+  }catch(e){
+    return d.toISOString().replace('T',' ').replace('Z',' UTC').slice(0,20);
+  }
+}
 function boolChip(label,val){if(val===undefined||val===null)return '';return `<span class="pill ${val?'ok':''}">${esc(label)}:${val?'Y':'N'}</span>`}
-function renderSnapshot(s){const order=['id','name','full_name','owner','html_url','description','created_at','updated_at','pushed_at','default_branch','size','stars','forks','watchers','open_issues','license','topics','fork','archived','disabled','visibility','is_template','allow_forking'];document.getElementById('snapshot').innerHTML=order.map(k=>`<div class="kv"><b>${esc(k)}</b><span>${k==='html_url'?`<a target="_blank" href="${esc(s[k])}">${esc(s[k])}</a>`:esc(Array.isArray(s[k])?s[k].join(', '):(s[k]??''))}</span></div>`).join('')}
-function renderRisk(risk){const factors=risk.factors||[];document.getElementById('risk').innerHTML=`<h2 class="risk-${esc(risk.level)}">${esc(risk.level)} / ${esc(risk.score)}</h2><h4>Why this risk?</h4>${factors.map(f=>`<div class="risk-factor"><span><b>${esc(f.category)}</b><br><span class="muted">${esc(f.reason)}</span></span><b class="risk-${esc(risk.level)}">+${esc(f.points)}</b></div>`).join('')||arr(risk.reasons||[])}<h4>Attack Narrative</h4><div class="empty">${esc(risk.explanation||'No narrative generated.')}</div>`}
+function renderSnapshot(s){
+  const order=['id','name','full_name','owner','owner_created_at','html_url','description','created_at','updated_at','pushed_at','default_branch','size','stars','forks','watchers','open_issues','license','topics','fork','archived','disabled','visibility','is_template','allow_forking'];
+  const labels={owner_created_at:'owner joined GitHub',created_at:'repo created',updated_at:'repo updated',pushed_at:'last push'};
+  const accountAge=v=>{if(!v)return '';const d=new Date(v);if(isNaN(d))return '';const days=Math.floor((Date.now()-d.getTime())/86400000);const tag=days<90?' <span class="conf-pill conf-low" style="transform:scale(.8)">new account</span>':'';return ` <span class="muted small">(${days} days old)</span>${tag}`;};
+  document.getElementById('snapshot').innerHTML=order.filter(k=>k!=='owner_created_at'||s[k]).map(k=>{
+    const label=labels[k]||k;
+    const isDate=/_at$|_on$/.test(k);
+    let val=k==='html_url'?`<a target="_blank" href="${esc(s[k])}">${esc(s[k])}</a>`:(isDate&&s[k]?esc(shortDate(s[k])):esc(Array.isArray(s[k])?s[k].join(', '):(s[k]??'')));
+    if(k==='owner_created_at'&&s[k])val+=accountAge(s[k]);
+    return `<div class="kv"><b>${esc(label)}</b><span>${val}</span></div>`;
+  }).join('');
+}
+function renderRisk(risk){
+  const factors=risk.factors||[];
+  const conf=(risk.confidence||'low').toLowerCase();
+  const maxPts=Math.max(1,...factors.map(f=>f.points||0));
+  const factorsHtml=factors.map(f=>{
+    const c=(f.confidence||'low').toLowerCase();
+    const w=Math.round(((f.points||0)/maxPts)*100);
+    return `<div class="risk-factor"><span style="flex:1"><b>${esc(f.category)}</b> <span class="conf-pill conf-${c}" style="transform:scale(.85)">${esc(c)}</span><br><span class="muted">${esc(f.reason)}</span><div class="factor-bar"><i class="${c}" style="width:${w}%"></i></div></span><b class="risk-${esc(risk.level)}">+${esc(f.points)}</b></div>`;
+  }).join('')||arr(risk.reasons||[]);
+  document.getElementById('risk').innerHTML=
+    `<div class="risk-badge">
+       <div class="risk-dial ${esc(risk.level)}"><b>${esc(risk.score)}</b><span>/100</span></div>
+       <div class="risk-meta">
+         <h2 class="risk-${esc(risk.level)}">${esc(risk.level)} RISK</h2>
+         <div><span class="conf-pill conf-${conf}">${esc(conf)} confidence</span></div>
+         <div class="muted small" style="margin-top:8px">${esc(risk.explanation||'No narrative generated.')}</div>
+       </div>
+     </div>
+     <h4>Why this risk?</h4>${factorsHtml}`;
+}
 function renderTree(tree){const entries=(tree.entries||[]).slice().sort((a,b)=>(a.path||'').localeCompare(b.path||''));if(!entries.length){repoTree.innerHTML='<div class="empty">No tree entries returned.</div>';return}const lines=[];for(const e of entries){const depth=(e.path.match(/\//g)||[]).length;const name=e.path.split('/').pop();const ind='&nbsp;'.repeat(depth*4);const icon=e.type==='tree'?'📁':'📄';const cls=e.type==='tree'?'tree-dir':'tree-file';const meta=e.type==='blob'?` <span class="tree-meta">${esc(e.size||0)}B</span>`:'';lines.push(`<div class="tree-line ${cls}">${ind}${icon} ${esc(name)}${meta}</div>`)}repoTree.innerHTML=`<div class="muted small">Files: ${esc(tree.files)} · Dirs: ${esc(tree.directories)} · Entries shown: ${esc(entries.length)} ${tree.truncated_by_github?'· GitHub truncated tree':''}</div><br/>`+lines.join('')}
 function renderExtra(r){const langs=r.languages||{};const contrib=r.contributors||[];const releases=r.releases||[];repoExtra.innerHTML=`<h4>Languages</h4>${arr(Object.entries(langs).map(([k,v])=>`${k}: ${v}`))}<h4>Contributors</h4>${arr(contrib.slice(0,20).map(c=>c.login||c.name||c.author_name))}<h4>Releases</h4>${releases.length?releases.slice(0,8).map(x=>`<div class="pill">${esc(x.name||x.tag_name)} · ${esc(x.published_at||'')}</div>`).join(''):'<span class="muted">No releases observed</span>'}`}
 function renderInfra(infra){infraEl=infra;const freq=infra.domain_frequency||[];document.getElementById('infra').innerHTML=`<p><b>Services:</b><br/>${arr(infra.external_services||[])}</p><p><b>Domains:</b> ${(infra.domains||[]).length}</p><div class="ioc-list">${(infra.domains||[]).slice(0,100).map(x=>`<span class="ioc-item">${esc(x)}</span>`).join('')||'<span class="muted">None</span>'}</div><p><b>Top domain frequency:</b></p><div class="ioc-list">${freq.slice(0,25).map(x=>`<span class="ioc-item">${esc(x[0])} (${esc(x[1])})</span>`).join('')||'<span class="muted">None</span>'}</div><p><b>Emails:</b></p><div class="ioc-list">${(infra.emails||[]).slice(0,60).map(x=>`<span class="ioc-item">${esc(x)}</span>`).join('')||'<span class="muted">None</span>'}</div>`}
-function renderIocs(i){const keys=['urls','emails','ipv4','domains','secret_pattern_hits'];document.getElementById('iocs').innerHTML=`<div class="ioc-grid">${keys.map(k=>`<div class="ioc-card"><div class="ioc-head"><b>${esc(k)}</b><span class="pill">${(i[k]||[]).length}</span></div><div class="ioc-list">${(i[k]||[]).slice(0,120).map(x=>`<span class="ioc-item">${esc(x)}</span>`).join('')||'<span class="muted">None</span>'}</div></div>`).join('')}</div>`}
+function renderIocs(i){
+  i=i||{};
+  const secretHits=i.secret_hits||[];
+  const order={high:0,medium:1,low:2};
+  const sortedSecrets=[...secretHits].sort((a,b)=>(order[a.confidence]??3)-(order[b.confidence]??3));
+  const secretCard=secretHits.length?
+    `<div class="ioc-card" style="border-color:rgba(255,107,107,.35)">
+       <div class="ioc-head"><b>🔑 Secret detections</b><span class="pill">${secretHits.length}</span></div>
+       <div>${sortedSecrets.map(h=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)"><span><span class="sev-dot ${esc(h.confidence)}"></span>${esc(h.name)} <span class="mono muted small">${esc(h.preview||'')}</span></span><span class="conf-pill conf-${esc(h.confidence)}">${esc(h.confidence)}</span></div>`).join('')}</div>
+     </div>`:'';
+  const keys=[['domains','Domains'],['ipv4','Public IPs'],['urls','URLs'],['emails','Emails']];
+  const listCards=keys.map(([k,label])=>{
+    const items=(i[k]||[]);
+    const clamp=items.length>40;
+    return `<div class="ioc-card collapsible-section"><div class="ioc-head"><b>${esc(label)}</b><span class="pill">${items.length}</span></div>
+      <div class="ioc-list ${clamp?'clamped':''}" data-iocfull="${clamp?'1':''}">${items.slice(0,500).map(x=>`<span class="ioc-item">${esc(x)}</span>`).join('')||'<span class="muted">None</span>'}</div>
+      ${clamp?`<span class="show-more" onclick="this.previousElementSibling.classList.toggle('clamped');this.textContent=this.previousElementSibling.classList.contains('clamped')?'Show all '+${items.length}:'Show less'">Show all ${items.length}</span>`:''}</div>`;
+  }).join('');
+  document.getElementById('iocs').innerHTML=`<div class="ioc-grid">${secretCard}${listCards}</div>`;
+}
 function vtBadge(vt){
   if(!vt)return '<span class="muted">Not checked</span>';
   const verdict=vt.verdict||vt.status||'unknown';
@@ -677,26 +787,56 @@ function hashBlock(h,note){
   if(!h)return `<span class="muted small">${esc(note||'No hash calculated')}</span>`;
   return `<div class="mono small"><b>MD5</b> ${esc(h.md5||'')}<br><b>SHA1</b> ${esc(h.sha1||'')}<br><b>SHA256</b> ${esc(h.sha256||'')}</div>`;
 }
+let _allFiles=[];
+function _fileHasIoc(f){const i=f.iocs||{};return (i.domains||[]).length||(i.ipv4||[]).length||(i.urls||[]).length||(i.secret_pattern_hits||[]).length||(i.secret_hits||[]).length;}
 function renderFiles(files){
+  _allFiles=files||[];
+  applyFileFilters();
+}
+function applyFileFilters(){
+  const q=(document.getElementById('fileSearch')?.value||'').toLowerCase();
+  const verdict=document.getElementById('fileVerdict')?.value||'all';
+  const sort=document.getElementById('fileSort')?.value||'path';
+  const iocOnly=document.getElementById('fileIocOnly')?.classList.contains('on');
+  let files=_allFiles.filter(f=>{
+    if(q && !(f.path||'').toLowerCase().includes(q))return false;
+    const v=(f.vt||{}).verdict||'';
+    if(verdict==='malicious'&&v!=='malicious')return false;
+    if(verdict==='suspicious'&&v!=='suspicious')return false;
+    if(verdict==='clean'&&!v.includes('clean'))return false;
+    if(iocOnly&&!_fileHasIoc(f))return false;
+    return true;
+  });
+  if(sort==='priority')files=[...files].sort((a,b)=>(b.priority||0)-(a.priority||0));
+  else if(sort==='size')files=[...files].sort((a,b)=>(b.size||0)-(a.size||0));
+  else if(sort==='verdict'){const r={malicious:0,suspicious:1};files=[...files].sort((a,b)=>(r[(a.vt||{}).verdict]??2)-(r[(b.vt||{}).verdict]??2));}
+  else files=[...files].sort((a,b)=>(a.path||'').localeCompare(b.path||''));
   const rows=files.slice(0,1000).map(f=>{
     const raw=f.raw_download_url||f.download_url||'';
-    const html=f.html_url||'';
-    const safePath=esc(f.path||'');
-    const safeRaw=esc(raw);
-    const safeHtml=esc(html);
-    const actions=raw
-      ? `<a class="mini-link" target="_blank" href="${safeRaw}">raw</a> <a class="mini-btn" href="${safeRaw}" download>Download</a>`
-      : '<span class="muted">N/A</span>';
-    const pathCell=html?`<a target="_blank" href="${safeHtml}" class="mono">${safePath}</a><br><span class="muted small">${esc(f.content_type_guess||'')}</span>`:`<span class="mono">${safePath}</span>`;
-    return `<tr><td>${pathCell}</td><td>${esc(f.size)}</td><td>${esc(f.priority||'')}</td><td>${hashBlock(f.hashes,f.hash_note)}</td><td>${vtBadge(f.vt)}</td><td>${actions}</td><td><button onclick="quickHistory('${safePath}')">History</button></td></tr>`
+    const safePath=esc(f.path||''),safeRaw=esc(raw),safeHtml=esc(f.html_url||'');
+    const actions=raw?`<a class="mini-link" target="_blank" href="${safeRaw}">raw</a> <a class="mini-btn" href="${safeRaw}" download>Download</a>`:'<span class="muted">N/A</span>';
+    const iocFlag=_fileHasIoc(f)?'<span class="pill" style="background:rgba(255,107,107,.14);border-color:rgba(255,107,107,.3)">IOC</span>':'';
+    const pathCell=f.html_url?`<a target="_blank" href="${safeHtml}" class="mono">${safePath}</a> ${iocFlag}<br><span class="muted small">${esc(f.content_type_guess||'')}</span>`:`<span class="mono">${safePath}</span> ${iocFlag}`;
+    return `<tr><td>${pathCell}</td><td>${esc(f.size)}</td><td>${esc(f.priority||'')}</td><td>${hashBlock(f.hashes,f.hash_note)}</td><td>${vtBadge(f.vt)}</td><td>${actions}</td><td><button onclick="quickHistory('${safePath}')">History</button></td></tr>`;
   }).join('');
-  document.getElementById('files').innerHTML=`<div class="muted small">Full inventory mode: every selected file is listed. Hashes are calculated for files under MAX_FILE_HASH_BYTES. VT verdicts appear when VT_API_KEY is configured.</div><table><tr><th>Path</th><th>Size</th><th>Priority</th><th>Hashes</th><th>VT Verdict</th><th>Download</th><th>History</th></tr>${rows}</table>`
+  const bar=`<div class="filterbar">
+    <input id="fileSearch" placeholder="filter by path…" value="${esc(document.getElementById('fileSearch')?.value||'')}" oninput="applyFileFilters()" style="flex:1;min-width:160px"/>
+    <select id="fileVerdict" onchange="applyFileFilters()"><option value="all">All verdicts</option><option value="malicious">Malicious</option><option value="suspicious">Suspicious</option><option value="clean">Clean</option></select>
+    <select id="fileSort" onchange="applyFileFilters()"><option value="path">Sort: Path</option><option value="priority">Sort: Priority</option><option value="verdict">Sort: Verdict</option><option value="size">Sort: Size</option></select>
+    <span class="chip-toggle ${document.getElementById('fileIocOnly')?.classList.contains('on')?'on':''}" id="fileIocOnly" onclick="this.classList.toggle('on');applyFileFilters()">Has IOCs</span>
+    <span class="muted small">${files.length} / ${_allFiles.length} files</span>
+  </div>`;
+  // Preserve focus on the search box across re-render
+  const hadFocus=document.activeElement&&document.activeElement.id==='fileSearch';
+  const caret=hadFocus?document.activeElement.selectionStart:null;
+  document.getElementById('files').innerHTML=bar+`<table><tr><th>Path</th><th>Size</th><th>Priority</th><th>Hashes</th><th>VT Verdict</th><th>Download</th><th>History</th></tr>${rows}</table>`;
+  if(hadFocus){const el=document.getElementById('fileSearch');el.focus();if(caret!=null)el.setSelectionRange(caret,caret);}
 }
-function renderCommits(c){document.getElementById('commits').innerHTML=`<table><tr><th>Date</th><th>Commit</th><th>Author</th><th>Verified</th><th>Stats</th><th>Files</th></tr>${c.slice(0,120).map(x=>`<tr><td>${esc(x.author_date)}</td><td><a target="_blank" href="${esc(x.html_url)}">${esc((x.sha||'').slice(0,7))}</a><br>${esc(x.message||'')}</td><td>${esc(x.author_name)}</td><td>${esc(x.verified)}<br><span class="muted small">${esc(x.verification_reason||'')}</span></td><td class="mono small">${esc(JSON.stringify(x.stats||{}))}</td><td class="mono small">${(x.files||[]).slice(0,10).map(f=>`${esc(f.status)} ${esc(f.filename)} (+${esc(f.additions)}/-${esc(f.deletions)})`).join('<br>')}</td></tr>`).join('')}</table>`}
+function renderCommits(c){document.getElementById('commits').innerHTML=`<table><tr><th>Date</th><th>Commit</th><th>Author</th><th>Verified</th><th>Stats</th><th>Files</th></tr>${c.slice(0,120).map(x=>`<tr><td>${esc(shortDate(x.author_date))}</td><td><a target="_blank" href="${esc(x.html_url)}">${esc((x.sha||'').slice(0,7))}</a><br>${esc(x.message||'')}</td><td>${esc(x.author_name)}</td><td>${esc(x.verified)}<br><span class="muted small">${esc(x.verification_reason||'')}</span></td><td class="mono small">${esc(JSON.stringify(x.stats||{}))}</td><td class="mono small">${(x.files||[]).slice(0,10).map(f=>`${esc(f.status)} ${esc(f.filename)} (+${esc(f.additions)}/-${esc(f.deletions)})`).join('<br>')}</td></tr>`).join('')}</table>`}
 function renderFindings(f){document.getElementById('findings').innerHTML=f.length?`<table><tr><th>Type</th><th>File</th><th>Detail</th></tr>${f.map(x=>`<tr><td>${esc(x.type)}</td><td class="mono">${esc(x.file||'')}</td><td>${esc(x.detail)}</td></tr>`).join('')}</table>`:'<span class="muted">No suspicious findings in scanned subset.</span>'}
 async function quickHistory(path){showTab('historyTab');let o=ownerRepoFromData();histOwner.value=o.owner||'';histRepo.value=o.repo||'';histBranch.value=o.branch||'';histPath.value=path;await fileHistory();document.getElementById('historyCard').scrollIntoView({behavior:'smooth',block:'start'})}
 async function fileHistory(){const out=document.getElementById('historyOut');out.innerHTML='<span class="loader">Fetching file history…</span>';try{const d=await post('/api/file-history',{owner:histOwner.value,repo:histRepo.value,path:histPath.value,branch:histBranch.value||null,max_commits:+histMax.value});renderHistory(d)}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
-function renderHistory(d){const rows=d.history||d.commits||[];if(!rows.length){historyOut.innerHTML=`<h4 class="mono">${esc(d.path||histPath.value)}</h4><div class="empty">No commit history returned for this exact path. Check path spelling/case and branch.</div>`;return}historyOut.innerHTML=`<h4 class="mono">${esc(d.path)}</h4><table><tr><th>Date</th><th>Commit</th><th>Author</th><th>Verified</th><th>File Change</th></tr>${rows.map(h=>`<tr><td>${esc(h.author_date)}</td><td><a target="_blank" href="${esc(h.html_url)}">${esc((h.sha||'').slice(0,7))}</a><br>${esc(h.message||'')}</td><td>${esc(h.author_name||'')}</td><td>${esc(h.verified)}<br><span class="muted small">${esc(h.verification_reason||'')}</span></td><td>${(h.file_changes||[]).map(f=>`<div class="mono small">${esc(f.filename||'')}<br>${esc(f.status)} +${esc(f.additions)} -${esc(f.deletions)}<pre>${esc(f.patch||'No patch available for this file/change.')}</pre></div>`).join('')||'<span class="muted">No patch available</span>'}</td></tr>`).join('')}</table>`}
+function renderHistory(d){const rows=d.history||d.commits||[];if(!rows.length){historyOut.innerHTML=`<h4 class="mono">${esc(d.path||histPath.value)}</h4><div class="empty">No commit history returned for this exact path. Check path spelling/case and branch.</div>`;return}historyOut.innerHTML=`<h4 class="mono">${esc(d.path)}</h4><table><tr><th>Date</th><th>Commit</th><th>Author</th><th>Verified</th><th>File Change</th></tr>${rows.map(h=>`<tr><td>${esc(shortDate(h.author_date))}</td><td><a target="_blank" href="${esc(h.html_url)}">${esc((h.sha||'').slice(0,7))}</a><br>${esc(h.message||'')}</td><td>${esc(h.author_name||'')}</td><td>${esc(h.verified)}<br><span class="muted small">${esc(h.verification_reason||'')}</span></td><td>${(h.file_changes||[]).map(f=>`<div class="mono small">${esc(f.filename||'')}<br>${esc(f.status)} +${esc(f.additions)} -${esc(f.deletions)}<pre>${esc(f.patch||'No patch available for this file/change.')}</pre></div>`).join('')||'<span class="muted">No patch available</span>'}</td></tr>`).join('')}</table>`}
 
 function highlightPatch(patch){
   const suspicious=/(password|passwd|pwd|secret|api[_-]?key|token|AKIA[0-9A-Z]{16}|gh[pousr]_|eval\(|exec\(|base64|curl .*\|.*bash|wget .*\|.*sh|invoke-webrequest|downloadstring)/i;
@@ -722,7 +862,7 @@ async function loadTimeline(){
     window.currentTimelineEvents=events;
     const sev=summary.severity_counts||events.reduce((a,e)=>{a[e.severity||'info']=(a[e.severity||'info']||0)+1;return a},{});
     const suspicious=events.filter(e=>['high','warning','notice'].includes(e.severity||'')).length;
-    timelineOut.innerHTML=`<div class="dash">${metric('Timeline Events',summary.total_events||events.length)}${metric('Suspicious/Notice',suspicious,suspicious?'warn':'')}${metric('High Severity',sev.high||0,(sev.high||0)?'bad':'')}${metric('Branch',d.branch||o.branch||'-')}${metric('Sync', 'Graph-ready')}</div><div class="syncbar"><span class="pill">Click timeline event → graph highlight</span><button class="secondary mini-btn" onclick="renderRepoAttackGraph(lastData);showTab('overview')">Refresh Attack Graph</button></div><div class="timeline">${events.slice(-160).map((e,idx)=>`<div class="event sev-${esc(e.severity||'info')}" data-event-idx="${idx}" onclick="syncTimelineEventToGraph(${idx},this)"><div class="small muted">${esc(e.date)} · ${esc(e.type)} ${e.sha?`· <a target="_blank" href="${esc(e.html_url||e.url||'')}">${esc(e.sha.slice(0,7))}</a>`:''}</div><b>${esc(e.title||e.message)}</b><div>${esc(e.detail||'')}</div>${e.author?`<div class="small muted">Author: ${esc(e.author)} · Verified: ${esc(e.verified)}</div>`:''}</div>`).join('')}</div>`;
+    timelineOut.innerHTML=`<div class="dash">${metric('Timeline Events',summary.total_events||events.length)}${metric('Suspicious/Notice',suspicious,suspicious?'warn':'')}${metric('High Severity',sev.high||0,(sev.high||0)?'bad':'')}${metric('Branch',d.branch||o.branch||'-')}${metric('Sync', 'Graph-ready')}</div><div class="syncbar"><span class="pill">Click timeline event → graph highlight</span><button class="secondary mini-btn" onclick="renderRepoAttackGraph(lastData);showTab('overview')">Refresh Attack Graph</button></div><div class="timeline">${events.slice(-160).map((e,idx)=>`<div class="event sev-${esc(e.severity||'info')}" data-event-idx="${idx}" onclick="syncTimelineEventToGraph(${idx},this)"><div class="small muted">${esc(shortDate(e.date))} · ${esc(e.type)} ${e.sha?`· <a target="_blank" href="${esc(e.html_url||e.url||'')}">${esc(e.sha.slice(0,7))}</a>`:''}</div><b>${esc(e.title||e.message)}</b><div>${esc(e.detail||'')}</div>${e.author?`<div class="small muted">Author: ${esc(e.author)} · Verified: ${esc(e.verified)}</div>`:''}</div>`).join('')}</div>`;
   }catch(e){timelineOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
 }
 function syncTimelineEventToGraph(idx,el){
@@ -887,7 +1027,7 @@ async function saveInvestigation(){
 }
 async function listInvestigations(){
   const out=document.getElementById('savedOut');out.innerHTML='<span class="loader">Loading saved investigations…</span>';
-  try{const r=await fetch('/api/investigations').then(x=>x.json());const items=r.investigations||[];out.innerHTML=items.length?`<table><tr><th>ID</th><th>Title</th><th>Created</th><th>Open</th></tr>${items.map(i=>`<tr><td class="mono small">${esc(i.id)}</td><td>${esc(i.title)}</td><td>${esc(i.created_at)}</td><td><button class="secondary" onclick="loadInvestigation('${esc(i.id)}')">Load</button></td></tr>`).join('')}</table>`:'<div class="empty">No saved investigations yet.</div>'}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+  try{const r=await fetch('/api/investigations').then(x=>x.json());const items=r.investigations||[];out.innerHTML=items.length?`<table><tr><th>ID</th><th>Title</th><th>Created</th><th>Open</th></tr>${items.map(i=>`<tr><td class="mono small">${esc(i.id)}</td><td>${esc(i.title)}</td><td>${esc(shortDate(i.created_at))}</td><td><button class="secondary" onclick="loadInvestigation('${esc(i.id)}')">Load</button></td></tr>`).join('')}</table>`:'<div class="empty">No saved investigations yet.</div>'}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
 }
 async function loadInvestigation(id){
   try{const d=await fetch('/api/investigations/'+encodeURIComponent(id)).then(x=>x.json());lastData=d.result||d;document.getElementById('results').classList.remove('hidden');render(lastData);window.scrollTo({top:0,behavior:'smooth'})}catch(e){alert('Load failed: '+e.message)}
@@ -1011,7 +1151,7 @@ function renderWatch(d){
       ${metric('First Scan',d.first_scan?'Yes':'No')}
       ${metric('Changes',diff.has_changes?'Detected':'None',diff.has_changes?'risk-HIGH':'risk-LOW')}
       ${metric('Email',email.attempted?(email.sent?'Sent':'Failed'):'Not attempted')}
-      ${metric('Snapshot',current.created_at||'-')}
+      ${metric('Snapshot',shortDate(current.created_at)||'-')}
     </div>
     <div class="watch-summary" style="margin-top:12px">
       ${metric('New Commits',newCommits.length,newCommits.length?'ok':'')}
@@ -1070,5 +1210,6 @@ function renderGenericGraph(containerId, detailId, graph){
 }
 
 </script>
+</div>
 </body>
 </html>

@@ -1,10 +1,10 @@
 import asyncio
 import os
-import time
-from functools import lru_cache
 from typing import Any, Optional
 
 import httpx
+
+from .modules.netsafe import safe_get, assert_url_is_safe, BlockedRequestError
 
 
 class GitHubAPIError(Exception):
@@ -20,7 +20,7 @@ class GitHubClient:
         self.headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "RepoTrace-v0.5",
+            "User-Agent": "RepoTrace-v2",
         }
         if self.token:
             self.headers["Authorization"] = f"Bearer {self.token}"
@@ -30,16 +30,16 @@ class GitHubClient:
         last_error = None
         for attempt in range(self.retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-                    r = await client.get(url, headers=self.headers, params=params)
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    r = await safe_get(client, url, headers=self.headers, params=params)
                 if r.status_code == 403 and "rate limit" in r.text.lower():
-                    raise GitHubAPIError(f"GitHub rate limit hit: {r.text[:400]}")
+                    raise GitHubAPIError(f"GitHub rate limit hit: {r.text[:300]}")
                 if r.status_code >= 400:
-                    raise GitHubAPIError(f"GitHub API error {r.status_code}: {r.text[:500]}")
+                    raise GitHubAPIError(f"GitHub API error {r.status_code}: {r.text[:400]}")
                 data = r.json() if r.content else None
-                if raw_headers:
-                    return data, dict(r.headers)
-                return data
+                return (data, dict(r.headers)) if raw_headers else data
+            except BlockedRequestError as e:
+                raise GitHubAPIError(f"Blocked unsafe request: {e}")
             except Exception as e:
                 last_error = e
                 if attempt < self.retries:
@@ -47,17 +47,19 @@ class GitHubClient:
         raise last_error
 
     async def get_bytes(self, url: str, max_bytes: int = 1_000_000) -> bytes:
-        headers = {"User-Agent": "RepoTrace-v0.5"}
+        headers = {"User-Agent": "RepoTrace-v2"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         last_error = None
         for attempt in range(self.retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-                    r = await client.get(url, headers=headers)
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    r = await safe_get(client, url, headers=headers)
                 if r.status_code >= 400:
-                    raise GitHubAPIError(f"Raw download error {r.status_code}: {r.text[:300]}")
+                    raise GitHubAPIError(f"Raw download error {r.status_code}: {r.text[:200]}")
                 return r.content[:max_bytes]
+            except BlockedRequestError as e:
+                raise GitHubAPIError(f"Blocked unsafe download: {e}")
             except Exception as e:
                 last_error = e
                 if attempt < self.retries:

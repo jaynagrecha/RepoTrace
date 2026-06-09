@@ -1,6 +1,16 @@
+"""DB-backed Razorpay payments for RepoTrace v2.
+
+The verification logic (HMAC checkout signature, server-side amount/currency/
+status re-check against Razorpay's API, idempotent grant, webhook signature
+verification) is preserved unchanged from the original because it was correct.
+What changed:
+* Orders/payments persist in SQLite instead of payments.json.
+* Credits are granted to the IDENTITY that created the order (user email when
+  logged in, else ip:<addr>), so a paying user keeps credits across networks.
+* mark_paid_and_grant stays idempotent via the orders.status guard.
+"""
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -8,24 +18,18 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 import httpx
 from fastapi import HTTPException, Request, status
 
-from .usage import client_ip, usage_manager
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-PAYMENTS_FILE = DATA_DIR / "payments.json"
+from .db import db
+from .security import client_ip
+from .usage import usage_manager
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
     v = os.getenv(name)
-    if v is None:
-        return default
-    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return default if v is None else v.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _price_rupees() -> int:
@@ -54,10 +58,6 @@ class PaymentProviderConfig:
 
 
 class PaymentManager:
-    def __init__(self, path: Path = PAYMENTS_FILE):
-        self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
     @property
     def provider(self) -> str:
         return (os.getenv("PAYMENT_PROVIDER") or "razorpay").strip().lower()
@@ -87,8 +87,7 @@ class PaymentManager:
 
     @property
     def upi_first(self) -> bool:
-        v = os.getenv("RAZORPAY_UPI_FIRST", "true").strip().lower()
-        return v in {"1", "true", "yes", "y", "on"}
+        return _env_bool("RAZORPAY_UPI_FIRST", True)
 
     @property
     def enabled(self) -> bool:
@@ -97,19 +96,6 @@ class PaymentManager:
     @property
     def razorpay_configured(self) -> bool:
         return bool(self.key_id and self.key_secret)
-
-    def load(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return {"orders": {}, "payments": {}}
-        try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
-        except Exception:
-            return {"orders": {}, "payments": {}}
-
-    def save(self, data: dict[str, Any]) -> None:
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(self.path)
 
     def public_config(self) -> PaymentProviderConfig:
         return PaymentProviderConfig(
@@ -124,226 +110,158 @@ class PaymentManager:
             upi_first=self.upi_first,
         )
 
-    async def create_order(self, request: Request, units: int = 1) -> dict[str, Any]:
+    async def _identity_for_request(self, request: Request) -> tuple[str, str]:
+        from .auth import auth_manager
+        ip = client_ip(request)
+        session = request.headers.get("x-session-token") or request.cookies.get("rt_session")
+        user = await auth_manager.user_from_session(session) if session else None
+        identity = user["email"] if user else f"ip:{ip}"
+        return identity, ip
+
+    async def create_order(self, request: Request, units: int = 1) -> dict:
         if not self.enabled:
             raise HTTPException(status_code=400, detail="Payments are disabled on this deployment.")
         if self.provider != "razorpay":
-            raise HTTPException(status_code=400, detail="Only Razorpay payment provider is implemented for verified payments.")
+            raise HTTPException(status_code=400, detail="Only Razorpay is implemented for verified payments.")
         if not self.razorpay_configured:
-            raise HTTPException(status_code=400, detail="Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env.")
+            raise HTTPException(status_code=400, detail="Razorpay is not configured.")
 
-        ip = client_ip(request)
+        identity, ip = await self._identity_for_request(request)
         units = max(1, int(units or 1))
         receipt = f"rt_{uuid.uuid4().hex[:20]}"
         payload = {
             "amount": _paise_for_units(units),
             "currency": "INR",
             "receipt": receipt,
-            "notes": {
-                "product": "RepoTrace",
-                "ip": ip,
-                "units": str(units),
-                "price_per_search_inr": str(_price_rupees()),
-            },
+            "notes": {"product": "RepoTrace", "identity": identity, "ip": ip, "units": str(units)},
         }
-        auth = (self.key_id, self.key_secret)
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post("https://api.razorpay.com/v1/orders", auth=auth, json=payload)
+            resp = await client.post("https://api.razorpay.com/v1/orders",
+                                     auth=(self.key_id, self.key_secret), json=payload)
         if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail={"message": "Razorpay order creation failed", "razorpay": resp.text})
+            raise HTTPException(status_code=502, detail={"message": "Razorpay order creation failed"})
         order = resp.json()
-        data = self.load()
-        data.setdefault("orders", {})[order["id"]] = {
-            "order_id": order["id"],
-            "receipt": receipt,
-            "ip": ip,
-            "units": units,
-            "amount": payload["amount"],
-            "currency": "INR",
-            "status": "created",
-            "created_at": int(time.time()),
-            "mode": self.mode,
-            "provider_response": order,
-        }
-        self.save(data)
+        await db.execute(
+            """INSERT INTO orders(order_id, receipt, identity, ip, units, amount, currency,
+                                  status, mode, created_at, provider_response)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (order["id"], receipt, identity, ip, units, payload["amount"], "INR",
+             "created", self.mode, int(time.time()), json.dumps(order)),
+        )
         return {
-            "provider": "razorpay",
-            "key_id": self.key_id,
-            "order_id": order["id"],
-            "amount": payload["amount"],
-            "amount_inr": payload["amount"] / 100,
-            "currency": "INR",
-            "name": os.getenv("UPI_NAME", "RepoTrace"),
-            "description": f"RepoTrace search credit x {units}",
-            "units": units,
-            "mode": self.mode,
-            "live_mode": self.live_mode,
-            "upi_first": self.upi_first,
-            "prefill": {
-                "email": os.getenv("PAYMENT_PREFILL_EMAIL", ""),
-                "contact": os.getenv("PAYMENT_PREFILL_CONTACT", ""),
-            },
+            "provider": "razorpay", "key_id": self.key_id, "order_id": order["id"],
+            "amount": payload["amount"], "amount_inr": payload["amount"] / 100, "currency": "INR",
+            "name": os.getenv("UPI_NAME", "RepoTrace"), "description": f"RepoTrace search credit x {units}",
+            "units": units, "mode": self.mode, "live_mode": self.live_mode, "upi_first": self.upi_first,
+            "prefill": {"email": os.getenv("PAYMENT_PREFILL_EMAIL", ""), "contact": os.getenv("PAYMENT_PREFILL_CONTACT", "")},
         }
 
     def _verify_checkout_signature(self, order_id: str, payment_id: str, signature: str) -> bool:
-        body = f"{order_id}|{payment_id}".encode("utf-8")
-        expected = hmac.new(self.key_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        body = f"{order_id}|{payment_id}".encode()
+        expected = hmac.new(self.key_secret.encode(), body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature or "")
 
-    def mark_paid_and_grant(self, order_id: str, payment_id: str | None = None, source: str = "checkout") -> dict[str, Any]:
-        data = self.load()
-        order = data.setdefault("orders", {}).get(order_id)
+    async def mark_paid_and_grant(self, order_id: str, payment_id: str | None = None,
+                                  source: str = "checkout") -> dict:
+        order = await db.fetchone("SELECT * FROM orders WHERE order_id = ?", (order_id,))
         if not order:
-            raise HTTPException(status_code=404, detail="Payment order not found in RepoTrace storage.")
-        if order.get("status") != "paid":
-            order["status"] = "paid"
-            order["paid_at"] = int(time.time())
-            order["payment_id"] = payment_id
-            order["paid_source"] = source
-            units = int(order.get("units", 1))
-            ip = order.get("ip", "unknown")
-            usage_manager.add_paid_credits(ip, units=units, source=source, order_id=order_id, payment_id=payment_id)
-        self.save(data)
-        return {"ok": True, "order_id": order_id, "payment_id": payment_id, "units_granted": int(order.get("units", 1)), "ip": order.get("ip")}
-
-    async def _fetch_razorpay_payment(self, payment_id: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=12) as client:
-            resp = await client.get(
-                f"https://api.razorpay.com/v1/payments/{payment_id}",
-                auth=(self.key_id, self.key_secret),
+            raise HTTPException(status_code=404, detail="Payment order not found.")
+        if order["status"] != "paid":
+            async with db.transaction() as conn:
+                await conn.execute(
+                    "UPDATE orders SET status='paid', paid_at=?, payment_id=?, paid_source=? WHERE order_id=?",
+                    (int(time.time()), payment_id, source, order_id),
+                )
+            await usage_manager.add_paid_credits(
+                order["identity"], order["ip"], units=int(order["units"]),
+                source=source, order_id=order_id, payment_id=payment_id,
             )
+        return {"ok": True, "order_id": order_id, "payment_id": payment_id,
+                "units_granted": int(order["units"]), "identity": order["identity"]}
+
+    async def _fetch_razorpay_payment(self, payment_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=12) as client:
+            resp = await client.get(f"https://api.razorpay.com/v1/payments/{payment_id}",
+                                    auth=(self.key_id, self.key_secret))
         if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail={"message": "Could not verify Razorpay payment", "razorpay": resp.text})
+            raise HTTPException(status_code=502, detail={"message": "Could not verify Razorpay payment"})
         return resp.json()
 
-    async def verify_checkout(self, order_id: str, payment_id: str, signature: str) -> dict[str, Any]:
+    async def verify_checkout(self, order_id: str, payment_id: str, signature: str) -> dict:
         if not self.razorpay_configured:
             raise HTTPException(status_code=400, detail="Razorpay is not configured.")
         if not self._verify_checkout_signature(order_id, payment_id, signature):
             raise HTTPException(status_code=400, detail="Invalid Razorpay payment signature.")
-
-        data = self.load()
-        local_order = data.setdefault("orders", {}).get(order_id)
-        if not local_order:
-            raise HTTPException(status_code=404, detail="Payment order not found in RepoTrace storage.")
+        local = await db.fetchone("SELECT * FROM orders WHERE order_id = ?", (order_id,))
+        if not local:
+            raise HTTPException(status_code=404, detail="Payment order not found.")
 
         payment = await self._fetch_razorpay_payment(payment_id)
         if payment.get("order_id") != order_id:
-            raise HTTPException(status_code=400, detail="Payment/order mismatch during Razorpay verification.")
-        if int(payment.get("amount") or 0) != int(local_order.get("amount") or 0):
-            raise HTTPException(status_code=400, detail="Payment amount mismatch during Razorpay verification.")
-        if payment.get("currency") != local_order.get("currency", "INR"):
-            raise HTTPException(status_code=400, detail="Payment currency mismatch during Razorpay verification.")
+            raise HTTPException(status_code=400, detail="Payment/order mismatch.")
+        if int(payment.get("amount") or 0) != int(local["amount"] or 0):
+            raise HTTPException(status_code=400, detail="Payment amount mismatch.")
+        if payment.get("currency") != (local["currency"] or "INR"):
+            raise HTTPException(status_code=400, detail="Payment currency mismatch.")
         if payment.get("status") != "captured":
-            raise HTTPException(status_code=400, detail=f"Payment not captured yet. Current status: {payment.get('status')}")
+            raise HTTPException(status_code=400, detail=f"Payment not captured. Status: {payment.get('status')}")
 
-        out = self.mark_paid_and_grant(order_id, payment_id, source="checkout:signature+api")
-        data = self.load()
-        data.setdefault("payments", {})[payment_id] = {
-            "order_id": order_id,
-            "status": payment.get("status"),
-            "amount": payment.get("amount"),
-            "currency": payment.get("currency"),
-            "method": payment.get("method"),
-            "email": payment.get("email"),
-            "contact": payment.get("contact"),
-            "verified_at": int(time.time()),
-            "mode": self.mode,
-        }
-        self.save(data)
+        out = await self.mark_paid_and_grant(order_id, payment_id, source="checkout:signature+api")
+        await db.execute(
+            """INSERT OR REPLACE INTO payments(payment_id, order_id, status, amount, currency,
+                                               method, email, contact, mode, verified_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (payment_id, order_id, payment.get("status"), payment.get("amount"), payment.get("currency"),
+             payment.get("method"), payment.get("email"), payment.get("contact"), self.mode, int(time.time())),
+        )
         return out
 
-
-    async def order_status(self, order_id: str) -> dict[str, Any]:
-        """Return local + Razorpay-confirmed order status, granting credits if paid.
-
-        Used by the frontend polling loop after Checkout/UPI QR opens.
-        It never trusts the browser; it checks local state first, then Razorpay.
-        """
-        data = self.load()
-        order = data.setdefault("orders", {}).get(order_id)
+    async def order_status(self, order_id: str) -> dict:
+        order = await db.fetchone("SELECT * FROM orders WHERE order_id = ?", (order_id,))
         if not order:
-            raise HTTPException(status_code=404, detail="Payment order not found in RepoTrace storage.")
-
-        if order.get("status") == "paid":
-            return {
-                "ok": True,
-                "order_id": order_id,
-                "status": "paid",
-                "paid": True,
-                "units_granted": int(order.get("units", 1)),
-                "payment_id": order.get("payment_id"),
-                "source": order.get("paid_source", "local"),
-            }
-
+            raise HTTPException(status_code=404, detail="Payment order not found.")
+        if order["status"] == "paid":
+            return {"ok": True, "order_id": order_id, "status": "paid", "paid": True,
+                    "units_granted": int(order["units"]), "payment_id": order["payment_id"],
+                    "source": order["paid_source"] or "local"}
         if not self.razorpay_configured:
-            return {
-                "ok": True,
-                "order_id": order_id,
-                "status": order.get("status", "created"),
-                "paid": False,
-                "configured": False,
-                "message": "Razorpay not configured; automatic verification is unavailable.",
-            }
-
+            return {"ok": True, "order_id": order_id, "status": order["status"], "paid": False,
+                    "configured": False, "message": "Razorpay not configured."}
         try:
             async with httpx.AsyncClient(timeout=12) as client:
-                resp = await client.get(
-                    f"https://api.razorpay.com/v1/orders/{order_id}/payments",
-                    auth=(self.key_id, self.key_secret),
-                )
+                resp = await client.get(f"https://api.razorpay.com/v1/orders/{order_id}/payments",
+                                        auth=(self.key_id, self.key_secret))
             if resp.status_code >= 400:
-                return {
-                    "ok": False,
-                    "order_id": order_id,
-                    "status": order.get("status", "created"),
-                    "paid": False,
-                    "razorpay_error": resp.text,
-                }
-            payload = resp.json()
-            for payment in payload.get("items", []):
+                return {"ok": False, "order_id": order_id, "status": order["status"], "paid": False}
+            for payment in resp.json().get("items", []):
                 if payment.get("status") == "captured":
-                    return self.mark_paid_and_grant(order_id, payment.get("id"), source="polling:razorpay_captured")
-            return {
-                "ok": True,
-                "order_id": order_id,
-                "status": order.get("status", "created"),
-                "paid": False,
-                "payments_seen": len(payload.get("items", [])),
-            }
-        except Exception as e:
-            return {
-                "ok": False,
-                "order_id": order_id,
-                "status": order.get("status", "created"),
-                "paid": False,
-                "error": str(e),
-            }
+                    return await self.mark_paid_and_grant(order_id, payment.get("id"),
+                                                          source="polling:razorpay_captured")
+            return {"ok": True, "order_id": order_id, "status": order["status"], "paid": False}
+        except Exception:
+            return {"ok": False, "order_id": order_id, "status": order["status"], "paid": False}
 
-    async def handle_webhook(self, request: Request) -> dict[str, Any]:
+    async def handle_webhook(self, request: Request) -> dict:
         raw = await request.body()
         if self.live_mode and not self.webhook_secret:
-            # Live deployments should configure RAZORPAY_WEBHOOK_SECRET. Checkout verification still works,
-            # but unsigned live webhooks are not accepted.
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="RAZORPAY_WEBHOOK_SECRET is required for live webhooks.")
+            raise HTTPException(status_code=400, detail="RAZORPAY_WEBHOOK_SECRET required for live webhooks.")
         if self.webhook_secret:
             supplied = request.headers.get("x-razorpay-signature", "")
-            expected = hmac.new(self.webhook_secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+            expected = hmac.new(self.webhook_secret.encode(), raw, hashlib.sha256).hexdigest()
             if not hmac.compare_digest(expected, supplied):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Razorpay webhook signature.")
+                raise HTTPException(status_code=400, detail="Invalid Razorpay webhook signature.")
         try:
             event = json.loads(raw.decode("utf-8"))
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid webhook JSON.")
-
         event_type = event.get("event", "")
-        payment_entity = (((event.get("payload") or {}).get("payment") or {}).get("entity") or {})
-        order_entity = (((event.get("payload") or {}).get("order") or {}).get("entity") or {})
-        order_id = payment_entity.get("order_id") or order_entity.get("id")
-        payment_id = payment_entity.get("id")
-        captured = event_type in {"payment.captured", "order.paid"} or payment_entity.get("status") == "captured" or order_entity.get("status") == "paid"
+        pe = (((event.get("payload") or {}).get("payment") or {}).get("entity") or {})
+        oe = (((event.get("payload") or {}).get("order") or {}).get("entity") or {})
+        order_id = pe.get("order_id") or oe.get("id")
+        payment_id = pe.get("id")
+        captured = event_type in {"payment.captured", "order.paid"} or pe.get("status") == "captured" or oe.get("status") == "paid"
         if captured and order_id:
-            return self.mark_paid_and_grant(order_id, payment_id, source=f"webhook:{event_type}")
+            return await self.mark_paid_and_grant(order_id, payment_id, source=f"webhook:{event_type}")
         return {"ok": True, "ignored": True, "event": event_type}
 
 

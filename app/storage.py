@@ -1,41 +1,47 @@
+"""DB-backed investigation storage for RepoTrace v2.
+
+Replaces the per-file JSON store in data/investigations/. Investigations are
+optionally scoped to the owning user so each analyst sees their own saved work.
+"""
+from __future__ import annotations
+
 import json
-import re
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-DATA_DIR = Path("data/investigations")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+from .db import db
 
 
-def _safe_slug(value: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", value)[:90].strip("_") or "investigation"
-
-
-def save_investigation(payload: dict[str, Any]) -> dict[str, Any]:
+async def save_investigation(payload: dict[str, Any], owner_email: str | None = None) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     snapshot = payload.get("snapshot") or {}
     title = payload.get("title") or snapshot.get("full_name") or "RepoTrace investigation"
     inv_id = f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:8]}"
-    record = {"id": inv_id, "title": title, "created_at": now, "updated_at": now, "payload": payload}
-    path = DATA_DIR / f"{inv_id}_{_safe_slug(title)}.json"
-    path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-    return {"id": inv_id, "title": title, "path": str(path), "created_at": now}
+    await db.execute(
+        """INSERT INTO investigations(id, owner_email, title, created_at, updated_at, payload)
+           VALUES(?,?,?,?,?,?)""",
+        (inv_id, owner_email, title, now, now, json.dumps(payload, ensure_ascii=False)),
+    )
+    return {"id": inv_id, "title": title, "created_at": now}
 
 
-def list_investigations() -> list[dict[str, Any]]:
-    rows = []
-    for p in sorted(DATA_DIR.glob("*.json"), reverse=True):
-        try:
-            obj = json.loads(p.read_text(encoding="utf-8"))
-            rows.append({"id": obj.get("id"), "title": obj.get("title"), "created_at": obj.get("created_at"), "path": str(p)})
-        except Exception:
-            continue
-    return rows[:200]
+async def list_investigations(owner_email: str | None = None) -> list[dict[str, Any]]:
+    if owner_email:
+        rows = await db.fetchall(
+            "SELECT id, title, created_at FROM investigations WHERE owner_email = ? ORDER BY created_at DESC LIMIT 200",
+            (owner_email,),
+        )
+    else:
+        rows = await db.fetchall(
+            "SELECT id, title, created_at FROM investigations ORDER BY created_at DESC LIMIT 200"
+        )
+    return rows
 
 
-def read_investigation(inv_id: str) -> dict[str, Any]:
-    for p in DATA_DIR.glob(f"{inv_id}*.json"):
-        return json.loads(p.read_text(encoding="utf-8"))
-    raise FileNotFoundError("Investigation not found")
+async def read_investigation(inv_id: str) -> dict[str, Any]:
+    row = await db.fetchone("SELECT * FROM investigations WHERE id = ?", (inv_id,))
+    if not row:
+        raise FileNotFoundError("Investigation not found")
+    row["payload"] = json.loads(row["payload"]) if row.get("payload") else {}
+    return row

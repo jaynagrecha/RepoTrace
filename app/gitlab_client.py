@@ -5,6 +5,8 @@ from urllib.parse import quote
 
 import httpx
 
+from .modules.netsafe import safe_get, BlockedRequestError
+
 
 class GitLabAPIError(Exception):
     pass
@@ -17,9 +19,7 @@ class GitLabClient:
         self.base = f"{self.base_url}/api/v4"
         self.timeout = timeout
         self.retries = retries
-        self.headers = {
-            "User-Agent": "RepoTrace-v19",
-        }
+        self.headers = {"User-Agent": "RepoTrace-v2"}
         if self.token:
             self.headers["PRIVATE-TOKEN"] = self.token
 
@@ -32,16 +32,16 @@ class GitLabClient:
         last_error = None
         for attempt in range(self.retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-                    r = await client.get(url, headers=self.headers, params=params)
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    r = await safe_get(client, url, headers=self.headers, params=params)
                 if r.status_code == 429:
-                    raise GitLabAPIError(f"GitLab rate limit hit: {r.text[:400]}")
+                    raise GitLabAPIError(f"GitLab rate limit hit: {r.text[:300]}")
                 if r.status_code >= 400:
-                    raise GitLabAPIError(f"GitLab API error {r.status_code}: {r.text[:500]}")
+                    raise GitLabAPIError(f"GitLab API error {r.status_code}: {r.text[:400]}")
                 data = r.json() if r.content else None
-                if raw_headers:
-                    return data, dict(r.headers)
-                return data
+                return (data, dict(r.headers)) if raw_headers else data
+            except BlockedRequestError as e:
+                raise GitLabAPIError(f"Blocked unsafe request: {e}")
             except Exception as e:
                 last_error = e
                 if attempt < self.retries:
@@ -53,11 +53,13 @@ class GitLabClient:
         last_error = None
         for attempt in range(self.retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-                    r = await client.get(url, headers=self.headers, params=params)
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    r = await safe_get(client, url, headers=self.headers, params=params)
                 if r.status_code >= 400:
-                    raise GitLabAPIError(f"GitLab raw download error {r.status_code}: {r.text[:300]}")
+                    raise GitLabAPIError(f"GitLab raw download error {r.status_code}: {r.text[:200]}")
                 return r.content[:max_bytes]
+            except BlockedRequestError as e:
+                raise GitLabAPIError(f"Blocked unsafe download: {e}")
             except Exception as e:
                 last_error = e
                 if attempt < self.retries:
