@@ -274,6 +274,8 @@ RepoTrace supports:
 
 <img width="1026" height="909" alt="image" src="https://github.com/user-attachments/assets/65292b73-5fd8-4a51-83ed-02ff89343e80" />
 <img width="1017" height="814" alt="image" src="https://github.com/user-attachments/assets/d98fe8c5-2f5e-4318-8bd5-fcc78d130b57" />
+<img width="1095" height="1092" alt="image" src="https://github.com/user-attachments/assets/3fe8b865-93b5-42d2-8c9f-f426a0fd851c" />
+
 
 
 ---
