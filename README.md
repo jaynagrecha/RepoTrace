@@ -1,4 +1,4 @@
-# RepoTrace 
+# RepoTrace
 
 > GitHub-first Repository Intelligence & OSINT Platform for Malware Analysts, DFIR Teams, Threat Hunters, and CTI Analysts.
 
