@@ -50,7 +50,7 @@ class PaymentProviderConfig:
     key_id: str | None = None
     currency: str = "INR"
     amount_inr: int = 2
-    mode: str = "test"
+    mode: str = ""
     live_mode: bool = False
     webhook_configured: bool = False
     payments_enabled: bool = True
