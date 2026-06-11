@@ -496,10 +496,10 @@ RepoTrace is actively under development.
 
 Current major milestones:
 
-* v20 — Delta Intelligence Dashboard
-* v21 — Public Launch Controls
-* v22 — Smart Repository Summaries
-* v22.1 — Production Hardening & Live Payments
+* v1.21 — Delta Intelligence Dashboard
+* v1.22 — Public Launch Controls
+* v1.23 — Production Hardening
+* v2.0 — Files Filter Bug Fixes, Advanced Watch List fixed, Added Forgot Password and Registration via OTP functionality
 
 ---
 
