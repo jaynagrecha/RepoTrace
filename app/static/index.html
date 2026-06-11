@@ -60,12 +60,12 @@ tr.hidden-row{display:none}
   <div class="card collapsed" id="accountBillingWrap">
     <div class="collapse-head" onclick="document.getElementById('accountBillingWrap').classList.toggle('collapsed')">
       <h3 style="margin:0">Account &amp; Billing</h3>
-      <span class="muted small">Login · org token routing · usage limits · payments · admin <span class="chev">▾</span></span>
+      <span class="muted small">Login/Register · payments · admin <span class="chev">▾</span></span>
     </div>
     <div class="collapse-body">
   <div class="card" id="accountPanel">
-    <div class="section-title"><h3>Enterprise / Org Login</h3><span class="pill">optional · server-side org token routing</span></div>
-    <p class="muted small">Enterprise users can register/login with an organization email. If RepoTrace has a server-side token configured for that email domain, logged-in scans use that org token instead of the public RepoTrace token. Users do not need to paste GitHub secrets into the browser.</p>
+    <div class="section-title"><h3>Enterprise / Org Login</h3><span class="pill">server-side org token routing</span></div>
+    <p class="muted small">Enterprise users can register/login with an organization email. If RepoTrace has a server-side token configured for that email domain, logged-in scans will use that org token instead of the public RepoTrace token.</p>
     <div class="grid">
       <div class="ioc-card">
         <h4>Login</h4>
@@ -78,7 +78,7 @@ tr.hidden-row{display:none}
       <div class="ioc-card">
         <h4>Create Account</h4>
         <input id="regEmail" placeholder="name@company.com" style="width:100%;margin-bottom:8px"/>
-        <input id="regOrg" placeholder="Organization name (optional)" style="width:100%;margin-bottom:8px"/>
+        <input id="regOrg" placeholder="Organization name" style="width:100%;margin-bottom:8px"/>
         <input id="regPassword" type="password" placeholder="password, min 8 chars" style="width:100%;margin-bottom:8px"/>
         <button onclick="registerUser()">Register</button>
         <div id="otpBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
@@ -165,7 +165,7 @@ https://gitlab.com/group/project"></textarea>
     <div class="grid">
       <div>
         <h4>GitHub User / Org Scanner</h4>
-        <p class="muted small">Scan public repositories for a GitHub user or organization and rank them by risk. This stays RepoTrace-only: repo intelligence, not payload triage.</p>
+        <p class="muted small">Scan public repositories for a GitHub user or organization and rank them by risk.</p>
         <div class="bulkrow">
           <input id="acctName" placeholder="user or org, e.g. socketio" />
           <input id="acctMaxRepos" type="number" value="30" min="1" max="200" title="Max repos"/>
