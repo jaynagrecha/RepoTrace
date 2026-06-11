@@ -45,3 +45,28 @@ async def read_investigation(inv_id: str) -> dict[str, Any]:
         raise FileNotFoundError("Investigation not found")
     row["payload"] = json.loads(row["payload"]) if row.get("payload") else {}
     return row
+
+
+async def delete_investigation(inv_id: str, owner_email: str | None = None) -> dict[str, Any]:
+    """Delete an investigation. Scoped to the owner so one user cannot delete
+    another's saved work. Anonymous (owner_email None) may only delete
+    investigations with no owner."""
+    if owner_email:
+        row = await db.fetchone(
+            "SELECT 1 FROM investigations WHERE id = ? AND owner_email = ?", (inv_id, owner_email)
+        )
+    else:
+        row = await db.fetchone(
+            "SELECT 1 FROM investigations WHERE id = ? AND owner_email IS NULL", (inv_id,)
+        )
+    if not row:
+        raise PermissionError("Investigation not found for this account.")
+    if owner_email:
+        await db.execute(
+            "DELETE FROM investigations WHERE id = ? AND owner_email = ?", (inv_id, owner_email)
+        )
+    else:
+        await db.execute(
+            "DELETE FROM investigations WHERE id = ? AND owner_email IS NULL", (inv_id,)
+        )
+    return {"ok": True, "id": inv_id, "deleted": True}

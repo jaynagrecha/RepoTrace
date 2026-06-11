@@ -47,6 +47,9 @@
 .collapsible-section .ioc-list.clamped{max-height:120px;overflow:hidden;position:relative}
 .show-more{cursor:pointer;color:var(--accent);font-size:12px;margin-top:8px;display:inline-block}
 tr.hidden-row{display:none}
+.saved-item{display:flex;align-items:center;gap:12px;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:#07101b;margin-bottom:8px}
+.saved-title{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved-actions{display:flex;gap:6px;flex-shrink:0}
 </style>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
@@ -1142,7 +1145,30 @@ async function saveInvestigation(){
 }
 async function listInvestigations(){
   const out=document.getElementById('savedOut');out.innerHTML='<span class="loader">Loading saved investigations…</span>';
-  try{const r=await fetch('/api/investigations',{headers:userSessionHeaders()}).then(x=>x.json());const items=Array.isArray(r)?r:(r.investigations||[]);out.innerHTML=items.length?`<table><tr><th>ID</th><th>Title</th><th>Created</th><th>Open</th></tr>${items.map(i=>`<tr><td class="mono small">${esc(i.id)}</td><td>${esc(i.title)}</td><td>${esc(shortDate(i.created_at))}</td><td><button class="secondary" onclick="loadInvestigation('${esc(i.id)}')">Load</button></td></tr>`).join('')}</table>`:'<div class="empty">No saved investigations yet.</div>'}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+  try{
+    const r=await fetch('/api/investigations',{headers:userSessionHeaders()}).then(x=>x.json());
+    const items=Array.isArray(r)?r:(r.investigations||[]);
+    if(!items.length){out.innerHTML='<div class="empty">No saved investigations yet. Analyze a repo, then click “Save Current”.</div>';return;}
+    out.innerHTML=`<div class="muted small" style="margin-bottom:8px">${items.length} saved investigation${items.length>1?'s':''}</div>`+
+      items.map(i=>`<div class="saved-item">
+        <div style="flex:1;min-width:0">
+          <div class="saved-title">${esc(i.title||'Untitled investigation')}</div>
+          <div class="muted small">${esc(shortDate(i.created_at))} · <span class="mono">${esc(i.id)}</span></div>
+        </div>
+        <div class="saved-actions">
+          <button class="mini-btn" onclick="loadInvestigation('${esc(i.id)}')">Load</button>
+          <button class="mini-btn" style="border-color:#5a2230" onclick="deleteInvestigation('${esc(i.id)}','${esc((i.title||'').replace(/'/g,"\\'"))}')">Delete</button>
+        </div>
+      </div>`).join('');
+  }catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+}
+async function deleteInvestigation(id,title){
+  if(!confirm(`Delete saved investigation${title?` “${title}”`:''}? This cannot be undone.`))return;
+  try{
+    const r=await fetch('/api/investigations/'+encodeURIComponent(id)+'/delete',{method:'POST',headers:userSessionHeaders()});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||'Delete failed');}
+    listInvestigations();
+  }catch(e){alert(e.message);}
 }
 async function loadInvestigation(id){
   try{const d=await fetch('/api/investigations/'+encodeURIComponent(id),{headers:userSessionHeaders()}).then(x=>x.json());lastData=d.payload||d.result||d;document.getElementById('results').classList.remove('hidden');render(lastData);window.scrollTo({top:0,behavior:'smooth'})}catch(e){alert('Load failed: '+e.message)}

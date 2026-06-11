@@ -28,7 +28,7 @@ from .parsers import parse_github_url
 from .resolver import resolve_to_repo_url
 from . import watchlist as watchlist_mgr
 from .analyzer import RepoTraceAnalyzer
-from .storage import list_investigations, read_investigation, save_investigation
+from .storage import list_investigations, read_investigation, save_investigation, delete_investigation
 from .usage import usage_manager, enforce_or_429
 from .payments import payment_manager
 from .auth import auth_manager
@@ -633,3 +633,12 @@ async def investigations_read(inv_id: str):
         return await read_investigation(inv_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Investigation not found")
+
+
+@app.post("/api/investigations/{inv_id}/delete")
+async def investigations_delete(inv_id: str, request: Request):
+    user = await auth_manager.user_from_session(_session(request))
+    try:
+        return await delete_investigation(inv_id, owner_email=(user or {}).get("email"))
+    except PermissionError as e:
+        raise HTTPException(status_code=404, detail=str(e))
