@@ -35,24 +35,38 @@ def _proxy_hops() -> int:
 
 
 def client_ip(request: Request) -> str:
-    """Return the most trustworthy client IP.
+    """Return a STABLE client identifier.
 
-    With TRUST_PROXY enabled we take the Nth-from-rightmost XFF entry, where N
-    is the number of proxies we sit behind. The rightmost entries are appended
-    by infrastructure we trust; the leftmost are attacker-controllable.
+    Render sits behind Cloudflare, which sets CF-Connecting-IP / True-Client-IP
+    to a single, consistent client IP. Preferring those fixes the bug where the
+    identity changed on every request: the old code indexed X-Forwarded-For from
+    the right by a fixed hop count, but XFF length varies between requests (edge/
+    CDN routing), so the resolved IP — and thus the usage row read — kept changing
+    (counts appearing to randomly jump on refresh).
+
+    Priority: CF-Connecting-IP -> True-Client-IP -> X-Real-IP -> leftmost XFF
+    (the originating client) -> socket peer. When TRUST_PROXY is off, socket only.
+
+    Note: header-based IPs are a usage/identity key, not a security boundary.
+    Admin auth and payment verification never rely on this value.
     """
     socket_ip = request.client.host if request.client else "unknown"
     if not _trust_proxy():
         return socket_ip
+    # Cloudflare single-IP headers are stable and set by infrastructure.
+    for h in ("cf-connecting-ip", "true-client-ip"):
+        v = request.headers.get(h)
+        if v and v.strip():
+            return v.strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
     xff = request.headers.get("x-forwarded-for")
     if xff:
         parts = [p.strip() for p in xff.split(",") if p.strip()]
         if parts:
-            idx = len(parts) - _proxy_hops()
-            return parts[idx] if 0 <= idx < len(parts) else parts[0]
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
+            # Leftmost = originating client; stable across requests.
+            return parts[0]
     return socket_ip
 
 
