@@ -623,7 +623,8 @@ async def investigations_save(payload: SaveInvestigationRequest, request: Reques
 @app.get("/api/investigations")
 async def investigations_list(request: Request):
     user = await auth_manager.user_from_session(_session(request))
-    return await list_investigations(owner_email=(user or {}).get("email"))
+    items = await list_investigations(owner_email=(user or {}).get("email"))
+    return {"investigations": items}
 
 
 @app.get("/api/investigations/{inv_id}")

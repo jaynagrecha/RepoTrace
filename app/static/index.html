@@ -1142,10 +1142,10 @@ async function saveInvestigation(){
 }
 async function listInvestigations(){
   const out=document.getElementById('savedOut');out.innerHTML='<span class="loader">Loading saved investigations…</span>';
-  try{const r=await fetch('/api/investigations').then(x=>x.json());const items=r.investigations||[];out.innerHTML=items.length?`<table><tr><th>ID</th><th>Title</th><th>Created</th><th>Open</th></tr>${items.map(i=>`<tr><td class="mono small">${esc(i.id)}</td><td>${esc(i.title)}</td><td>${esc(shortDate(i.created_at))}</td><td><button class="secondary" onclick="loadInvestigation('${esc(i.id)}')">Load</button></td></tr>`).join('')}</table>`:'<div class="empty">No saved investigations yet.</div>'}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+  try{const r=await fetch('/api/investigations',{headers:userSessionHeaders()}).then(x=>x.json());const items=Array.isArray(r)?r:(r.investigations||[]);out.innerHTML=items.length?`<table><tr><th>ID</th><th>Title</th><th>Created</th><th>Open</th></tr>${items.map(i=>`<tr><td class="mono small">${esc(i.id)}</td><td>${esc(i.title)}</td><td>${esc(shortDate(i.created_at))}</td><td><button class="secondary" onclick="loadInvestigation('${esc(i.id)}')">Load</button></td></tr>`).join('')}</table>`:'<div class="empty">No saved investigations yet.</div>'}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
 }
 async function loadInvestigation(id){
-  try{const d=await fetch('/api/investigations/'+encodeURIComponent(id)).then(x=>x.json());lastData=d.payload||d.result||d;document.getElementById('results').classList.remove('hidden');render(lastData);window.scrollTo({top:0,behavior:'smooth'})}catch(e){alert('Load failed: '+e.message)}
+  try{const d=await fetch('/api/investigations/'+encodeURIComponent(id),{headers:userSessionHeaders()}).then(x=>x.json());lastData=d.payload||d.result||d;document.getElementById('results').classList.remove('hidden');render(lastData);window.scrollTo({top:0,behavior:'smooth'})}catch(e){alert('Load failed: '+e.message)}
 }
 
 async function compareRepos(){
