@@ -79,7 +79,7 @@ class PaymentManager:
         configured = (os.getenv("RAZORPAY_MODE") or "").strip().lower()
         if configured in {"live", "test"}:
             return configured
-        return "live" if self.key_id.startswith("rzp_live_") else "test"
+        # return "live" if self.key_id.startswith("rzp_live_") else "test"
 
     @property
     def live_mode(self) -> bool:
