@@ -73,6 +73,7 @@ tr.hidden-row{display:none}
         <input id="loginPassword" type="password" placeholder="password" style="width:100%;margin-bottom:8px"/>
         <button class="secondary" onclick="loginUser()">Login</button>
         <button class="secondary" onclick="logoutUser()">Logout</button>
+        <div style="margin-top:8px"><span class="mini-link" style="cursor:pointer" onclick="forgotPassword()">Forgot password?</span></div>
       </div>
       <div class="ioc-card">
         <h4>Create Account</h4>
@@ -80,7 +81,19 @@ tr.hidden-row{display:none}
         <input id="regOrg" placeholder="Organization name (optional)" style="width:100%;margin-bottom:8px"/>
         <input id="regPassword" type="password" placeholder="password, min 8 chars" style="width:100%;margin-bottom:8px"/>
         <button onclick="registerUser()">Register</button>
+        <div id="otpBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+          <p class="muted small">Enter the 6-digit code sent to <b id="otpEmail"></b>:</p>
+          <input id="otpCode" placeholder="6-digit code" maxlength="6" inputmode="numeric" style="width:100%;margin-bottom:8px"/>
+          <button onclick="verifyOtp()">Verify</button>
+          <span class="mini-link" style="cursor:pointer;margin-left:8px" onclick="resendOtp()">Resend code</span>
+        </div>
       </div>
+    </div>
+    <div id="resetForm" class="ioc-card" style="display:none;margin-top:10px">
+      <h4>Set a new password</h4>
+      <p class="muted small">You followed a password-reset link. Enter a new password below.</p>
+      <input id="resetNewPassword" type="password" placeholder="new password, min 8 chars" style="width:100%;margin-bottom:8px"/>
+      <button onclick="submitReset()">Update password</button>
     </div>
     <div id="authOut" class="muted small" style="margin-top:10px">Not logged in. Public RepoTrace token will be used.</div>
   </div>
@@ -186,6 +199,14 @@ https://gitlab.com/group/project"></textarea>
       </div>
     </div>
     <div id="radarOut" style="margin-top:14px"></div>
+
+    <div id="myWatchlist" style="margin-top:18px">
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <h4 style="margin:0">My Watchlist</h4>
+        <button class="mini-btn" onclick="loadWatchlist()">Refresh</button>
+      </div>
+      <div id="watchlistOut" class="muted small">Log in to view and manage your watched users/orgs.</div>
+    </div>
   </div>
 
   <div id="bulkResults" class="hidden">
@@ -377,15 +398,73 @@ async function registerUser(){
   const body={email:regEmail.value.trim(), password:regPassword.value, org_name:regOrg.value.trim()};
   try{
     const d=await post('/api/auth/register',body);
-    authOut.innerHTML=`<span class="ok">Account created for ${esc(d.email)}. Login now.</span> · Token route: ${esc(d.token_source||'public_default')}`;
-    loginEmail.value=regEmail.value.trim();
-    regEmail.value=''; regOrg.value=''; regPassword.value='';
+    window._otpEmail=d.email;
+    document.getElementById('otpEmail').textContent=d.email;
+    document.getElementById('otpBox').style.display='block';
+    authOut.innerHTML=`<span class="ok">${esc(d.message||'Account created. Check your email for a verification code.')}</span>`;
+    loginEmail.value=d.email;
   }
   catch(e){authOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
 }
+async function verifyOtp(){
+  const email=window._otpEmail||loginEmail.value.trim();
+  const code=document.getElementById('otpCode').value.trim();
+  try{
+    const r=await fetch('/api/auth/verify-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,code})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||'Verification failed');
+    document.getElementById('otpBox').style.display='none';
+    regEmail.value=''; regOrg.value=''; regPassword.value='';
+    authOut.innerHTML=`<span class="ok">${esc(d.message||'Email verified. You can now log in.')}</span>`;
+  }catch(e){authOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`;}
+}
+async function resendOtp(){
+  const email=window._otpEmail||loginEmail.value.trim();
+  try{
+    const r=await fetch('/api/auth/resend-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+    const d=await r.json();
+    authOut.innerHTML=`<span class="ok">${esc(d.message||'Code resent.')}</span>`;
+  }catch(e){authOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`;}
+}
+async function forgotPassword(){
+  const email=(document.getElementById('loginEmail').value||'').trim();
+  if(!email){authOut.innerHTML='<span class="bad">Enter your email above first, then click Forgot password.</span>';return;}
+  try{
+    const r=await fetch('/api/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+    const d=await r.json();
+    authOut.innerHTML=`<span class="ok">${esc(d.message||'If an account exists, a reset link has been sent.')}</span>`;
+  }catch(e){authOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`;}
+}
+function maybeShowReset(){
+  const params=new URLSearchParams(location.search);
+  const token=params.get('reset_token');
+  if(token){window._resetToken=token;document.getElementById('resetForm').style.display='block';document.getElementById('resetForm').scrollIntoView({behavior:'smooth'});}
+}
+async function submitReset(){
+  const new_password=document.getElementById('resetNewPassword').value;
+  const token=window._resetToken;
+  if(!token){authOut.innerHTML='<span class="bad">Missing reset token.</span>';return;}
+  try{
+    const r=await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,new_password})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||'Reset failed');
+    document.getElementById('resetForm').style.display='none';
+    authOut.innerHTML=`<span class="ok">${esc(d.message||'Password updated. Please log in.')}</span>`;
+    history.replaceState({},'',location.pathname);
+  }catch(e){authOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`;}
+}
 async function loginUser(){
-  try{const d=await post('/api/auth/login',{email:loginEmail.value.trim(),password:loginPassword.value}); localStorage.setItem('repotrace_session',d.session_token); loginPassword.value=''; renderAuthStatus(d); tokenStatus();}
-  catch(e){authOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
+  try{const d=await post('/api/auth/login',{email:loginEmail.value.trim(),password:loginPassword.value}); localStorage.setItem('repotrace_session',d.session_token); loginPassword.value=''; renderAuthStatus(d); tokenStatus(); loadWatchlist();}
+  catch(e){
+    if(e.status===403 && e.detail && e.detail.code==='email_not_verified'){
+      window._otpEmail=e.detail.email;
+      document.getElementById('otpEmail').textContent=e.detail.email;
+      document.getElementById('otpBox').style.display='block';
+      authOut.innerHTML=`<span class="bad">Please verify your account first.</span> A code was sent to your email — enter it below, or click Resend code.`;
+    } else {
+      authOut.innerHTML=`<span class="bad">${esc(e.message)}</span>`;
+    }
+  }
 }
 async function logoutUser(){
   try{await post('/api/auth/logout',{});}catch(e){}
@@ -399,10 +478,11 @@ function renderAuthStatus(d){
   authOut.innerHTML=`<span class="ok">Logged in as ${esc(u.email||'user')}</span> · Org: ${esc(u.org_name||u.org_domain||'-')} · Token route: <b>${esc(source)}</b> ${u.github_token_fingerprint?`(${esc(u.github_token_fingerprint)})`:''}${badge}`;
 }
 async function checkAuthStatus(){
-  try{const r=await fetch('/api/auth/status',{headers:userSessionHeaders()}); const d=await r.json(); if(d.authenticated) renderAuthStatus(d);}
+  try{const r=await fetch('/api/auth/status',{headers:userSessionHeaders()}); const d=await r.json(); if(d.authenticated){ renderAuthStatus(d); loadWatchlist(); }}
   catch(e){}
 }
 checkAuthStatus();
+maybeShowReset();
 
 async function tokenStatus(){try{const r=await fetch('/api/token-status',{headers:userSessionHeaders()});const d=await r.json();let t=d.github_token_configured?'GitHub token configured':'No GitHub token';let rl=d.rate_limit?` · ${d.rate_limit.remaining}/${d.rate_limit.limit}`:'';let gl=d.gitlab_token_configured?' · GitLab token configured':' · GitLab public mode';document.getElementById('token').textContent=t+rl+gl}catch(e){document.getElementById('token').textContent='Token check failed'}} tokenStatus();
 async function refreshUsage(){
@@ -657,7 +737,7 @@ function showScanSkeleton(){
   ['snapshot','risk','findings','infra','iocs','repoTree'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='<div class="skeleton lg"></div>'+sk(3);});
   const f=document.getElementById('files');if(f)f.innerHTML='<div class="skeleton med"></div>'+sk(6);
 }
-function render(r){if(r.target_type==='user'){renderUser(r);return}const s=r.snapshot||{},risk=r.risk||{},perf=r.adaptive_scan||{};document.getElementById('scanMode').innerText=(perf.mode||'user')+' · '+(perf.strategy||'metadata');document.getElementById('dashboard').innerHTML=[metric('Risk Score',`${risk.level||'INFO'} ${risk.score??''}`,`risk-${risk.level}`),metric('Files Analyzed',`${perf.files_analyzed??0}/${perf.total_files_discovered??0}`),metric('Directories',perf.total_dirs_discovered??0),metric('Commits Checked',perf.commits_selected_for_detail??0),metric('Runtime',perf.elapsed_ms?`${perf.elapsed_ms} ms`:'-')].join('');document.getElementById('adaptive').innerHTML=perf.mode?`Mode <b>${esc(perf.mode)}</b> · files hashed <b>${esc(perf.files_hashed??0)}</b> · VT checked <b>${esc(perf.vt_files_checked??0)}</b> · workers files/commits <b>${esc(perf.file_concurrency)}/${esc(perf.commit_concurrency)}</b> · max bytes/file <b>${esc(perf.max_file_bytes)}</b> · ${esc(perf.rate_limit_tip||'')}`:'';renderSnapshot(s);renderRisk(risk);renderTree(r.tree||{});renderExtra(r);renderInfra(r.infra_links||{});renderIocs(r.iocs||{});renderFiles(r.files_analyzed||[]);renderCommits(r.commits||[]);renderFindings(r.suspicious_findings||[]);renderRepoAttackGraph(r);let o=ownerRepoFromData();['cmpOwner','histOwner'].forEach(id=>document.getElementById(id).value=o.owner||'');['cmpRepo','histRepo'].forEach(id=>document.getElementById(id).value=o.repo||'');histBranch.value=o.branch||''}
+function render(r){if(r.target_type==='user'){renderUser(r);return}const s=r.snapshot||{},risk=r.risk||{},perf=r.adaptive_scan||{};if(r.source_provenance){document.getElementById('status').innerHTML=`<span class="ok">✓ ${esc(r.source_provenance)}</span>`;}document.getElementById('scanMode').innerText=(perf.mode||'user')+' · '+(perf.strategy||'metadata');document.getElementById('dashboard').innerHTML=[metric('Risk Score',`${risk.level||'INFO'} ${risk.score??''}`,`risk-${risk.level}`),metric('Files Analyzed',`${perf.files_analyzed??0}/${perf.total_files_discovered??0}`),metric('Directories',perf.total_dirs_discovered??0),metric('Commits Checked',perf.commits_selected_for_detail??0),metric('Runtime',perf.elapsed_ms?`${perf.elapsed_ms} ms`:'-')].join('');document.getElementById('adaptive').innerHTML=perf.mode?`Mode <b>${esc(perf.mode)}</b> · files hashed <b>${esc(perf.files_hashed??0)}</b> · VT checked <b>${esc(perf.vt_files_checked??0)}</b> · workers files/commits <b>${esc(perf.file_concurrency)}/${esc(perf.commit_concurrency)}</b> · max bytes/file <b>${esc(perf.max_file_bytes)}</b> · ${esc(perf.rate_limit_tip||'')}`:'';renderSnapshot(s);renderRisk(risk);renderTree(r.tree||{});renderExtra(r);renderInfra(r.infra_links||{});renderIocs(r.iocs||{});renderFiles(r.files_analyzed||[]);renderCommits(r.commits||[]);renderFindings(r.suspicious_findings||[]);renderRepoAttackGraph(r);let o=ownerRepoFromData();['cmpOwner','histOwner'].forEach(id=>document.getElementById(id).value=o.owner||'');['cmpRepo','histRepo'].forEach(id=>document.getElementById(id).value=o.repo||'');histBranch.value=o.branch||''}
 function renderUser(r){
   const u=r.user||{}, repos=r.repositories||[];
   const isGitLab=(r.platform||'github')==='gitlab';
@@ -796,6 +876,26 @@ let _allFiles=[];
 function _fileHasIoc(f){const i=f.iocs||{};return (i.domains||[]).length||(i.ipv4||[]).length||(i.urls||[]).length||(i.secret_pattern_hits||[]).length||(i.secret_hits||[]).length;}
 function renderFiles(files){
   _allFiles=files||[];
+  // Build the filter bar ONCE so selecting a dropdown value never gets reset by
+  // a table re-render. Only the table body + count update on filter changes.
+  const bar=`<div class="filterbar">
+    <input id="fileSearch" placeholder="filter by path…" style="flex:1;min-width:160px"/>
+    <select id="fileVerdict"><option value="all">All verdicts</option><option value="malicious">Malicious</option><option value="suspicious">Suspicious</option><option value="clean">Clean</option></select>
+    <select id="fileSort"><option value="path">Sort: Path</option><option value="priority">Sort: Priority</option><option value="verdict">Sort: Verdict</option><option value="size">Sort: Size</option></select>
+    <span class="chip-toggle" id="fileIocOnly">Has IOCs</span>
+    <span class="muted small" id="fileCount"></span>
+  </div>`;
+  document.getElementById('files').innerHTML=bar+`<div id="filesTableWrap"></div>`;
+  // Bind listeners in JS (more reliable than inline onchange, which can skip
+  // firing when re-selecting a value while the result set is empty). We listen
+  // to both 'change' and 'input' so every interaction re-applies the filter.
+  const search=document.getElementById('fileSearch');
+  const verdict=document.getElementById('fileVerdict');
+  const sortSel=document.getElementById('fileSort');
+  const ioc=document.getElementById('fileIocOnly');
+  search.addEventListener('input',applyFileFilters);
+  ['change','input'].forEach(ev=>{verdict.addEventListener(ev,applyFileFilters);sortSel.addEventListener(ev,applyFileFilters);});
+  ioc.addEventListener('click',()=>{ioc.classList.toggle('on');applyFileFilters();});
   applyFileFilters();
 }
 function applyFileFilters(){
@@ -824,18 +924,10 @@ function applyFileFilters(){
     const pathCell=f.html_url?`<a target="_blank" href="${safeHtml}" class="mono">${safePath}</a> ${iocFlag}<br><span class="muted small">${esc(f.content_type_guess||'')}</span>`:`<span class="mono">${safePath}</span> ${iocFlag}`;
     return `<tr><td>${pathCell}</td><td>${esc(f.size)}</td><td>${esc(f.priority||'')}</td><td>${hashBlock(f.hashes,f.hash_note)}</td><td>${vtBadge(f.vt)}</td><td>${actions}</td><td><button onclick="quickHistory('${safePath}')">History</button></td></tr>`;
   }).join('');
-  const bar=`<div class="filterbar">
-    <input id="fileSearch" placeholder="filter by path…" value="${esc(document.getElementById('fileSearch')?.value||'')}" oninput="applyFileFilters()" style="flex:1;min-width:160px"/>
-    <select id="fileVerdict" onchange="applyFileFilters()"><option value="all">All verdicts</option><option value="malicious">Malicious</option><option value="suspicious">Suspicious</option><option value="clean">Clean</option></select>
-    <select id="fileSort" onchange="applyFileFilters()"><option value="path">Sort: Path</option><option value="priority">Sort: Priority</option><option value="verdict">Sort: Verdict</option><option value="size">Sort: Size</option></select>
-    <span class="chip-toggle ${document.getElementById('fileIocOnly')?.classList.contains('on')?'on':''}" id="fileIocOnly" onclick="this.classList.toggle('on');applyFileFilters()">Has IOCs</span>
-    <span class="muted small">${files.length} / ${_allFiles.length} files</span>
-  </div>`;
-  // Preserve focus on the search box across re-render
-  const hadFocus=document.activeElement&&document.activeElement.id==='fileSearch';
-  const caret=hadFocus?document.activeElement.selectionStart:null;
-  document.getElementById('files').innerHTML=bar+`<table><tr><th>Path</th><th>Size</th><th>Priority</th><th>Hashes</th><th>VT Verdict</th><th>Download</th><th>History</th></tr>${rows}</table>`;
-  if(hadFocus){const el=document.getElementById('fileSearch');el.focus();if(caret!=null)el.setSelectionRange(caret,caret);}
+  const wrap=document.getElementById('filesTableWrap');
+  if(wrap)wrap.innerHTML=`<table><tr><th>Path</th><th>Size</th><th>Priority</th><th>Hashes</th><th>VT Verdict</th><th>Download</th><th>History</th></tr>${rows}</table>`;
+  const cnt=document.getElementById('fileCount');
+  if(cnt)cnt.textContent=`${files.length} / ${_allFiles.length} files`;
 }
 function renderCommits(c){document.getElementById('commits').innerHTML=`<table><tr><th>Date</th><th>Commit</th><th>Author</th><th>Verified</th><th>Stats</th><th>Files</th></tr>${c.slice(0,120).map(x=>`<tr><td>${esc(shortDate(x.author_date))}</td><td><a target="_blank" href="${esc(x.html_url)}">${esc((x.sha||'').slice(0,7))}</a><br>${esc(x.message||'')}</td><td>${esc(x.author_name)}</td><td>${esc(x.verified)}<br><span class="muted small">${esc(x.verification_reason||'')}</span></td><td class="mono small">${esc(JSON.stringify(x.stats||{}))}</td><td class="mono small">${(x.files||[]).slice(0,10).map(f=>`${esc(f.status)} ${esc(f.filename)} (+${esc(f.additions)}/-${esc(f.deletions)})`).join('<br>')}</td></tr>`).join('')}</table>`}
 function renderFindings(f){document.getElementById('findings').innerHTML=f.length?`<table><tr><th>Type</th><th>File</th><th>Detail</th></tr>${f.map(x=>`<tr><td>${esc(x.type)}</td><td class="mono">${esc(x.file||'')}</td><td>${esc(x.detail)}</td></tr>`).join('')}</table>`:'<span class="muted">No suspicious findings in scanned subset.</span>'}
@@ -1132,8 +1224,53 @@ async function watchTarget(){
       test_email:document.getElementById('watchTestEmail').checked
     });
     renderWatch(d);
+    loadWatchlist();
     tokenStatus();
   }catch(e){if(e.status===429){pendingPaidRetry=watchTarget;out.innerHTML=paywallHtml(e)}else{out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
+}
+async function loadWatchlist(){
+  const el=document.getElementById('watchlistOut');
+  try{
+    const r=await fetch('/api/watchlist',{headers:userSessionHeaders()});
+    if(r.status===401){el.innerHTML='<span class="muted small">Log in to view and manage your watched users/orgs.</span>';return;}
+    const d=await r.json();
+    const ws=d.watches||[];
+    if(!ws.length){el.innerHTML='<span class="muted small">No watches yet. Run a watch above to start tracking a user or org.</span>';return;}
+    el.innerHTML=`<table style="width:100%"><tr><th>Target</th><th>Status</th><th>Every</th><th>Last run</th><th>Last risk</th><th>Actions</th></tr>`+
+      ws.map(w=>{
+        const status=w.enabled?'<span class="ok">Active</span>':'<span class="muted">Paused</span>';
+        const last=w.last_run?shortDate(w.last_run):'—';
+        const risk=w.last_risk?`<span class="risk-${esc(w.last_risk)}">${esc(w.last_risk)}</span>`:'—';
+        const toggle=w.enabled
+          ?`<button class="mini-btn" onclick="watchAction('pause','${esc(w.watch_id)}')">Pause</button>`
+          :`<button class="mini-btn" onclick="watchAction('resume','${esc(w.watch_id)}')">Resume</button>`;
+        return `<tr>
+          <td class="mono small">${esc(w.target)}<br><span class="muted">${esc(w.target_type||'')}</span></td>
+          <td>${status}</td>
+          <td><input type="number" value="${esc(w.interval_min)}" min="30" max="10080" style="width:80px" id="iv_${esc(w.watch_id)}"/> min
+              <button class="mini-link" onclick="watchInterval('${esc(w.watch_id)}')">save</button></td>
+          <td class="small">${last}</td>
+          <td>${risk}</td>
+          <td>${toggle} <button class="mini-btn" style="border-color:#5a2230" onclick="watchAction('delete','${esc(w.watch_id)}')">Delete</button></td>
+        </tr>`;
+      }).join('')+`</table>`;
+  }catch(e){el.innerHTML=`<span class="bad">${esc(e.message||'Failed to load watchlist')}</span>`;}
+}
+async function watchAction(action,watch_id){
+  if(action==='delete' && !confirm('Delete this watch? This removes its baseline snapshot too.'))return;
+  try{
+    const r=await fetch('/api/watchlist/'+action,{method:'POST',headers:{...userSessionHeaders(),'Content-Type':'application/json'},body:JSON.stringify({watch_id})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||'Action failed');}
+    loadWatchlist();
+  }catch(e){alert(e.message);}
+}
+async function watchInterval(watch_id){
+  const interval_min=+document.getElementById('iv_'+watch_id).value;
+  try{
+    const r=await fetch('/api/watchlist/interval',{method:'POST',headers:{...userSessionHeaders(),'Content-Type':'application/json'},body:JSON.stringify({watch_id,interval_min})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||'Update failed');}
+    loadWatchlist();
+  }catch(e){alert(e.message);}
 }
 function fmtChangeItem(x){
   if(typeof x==='string') return esc(x);

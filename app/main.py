@@ -25,6 +25,8 @@ from pydantic import BaseModel, Field
 
 from .github_client import GitHubClient
 from .parsers import parse_github_url
+from .resolver import resolve_to_repo_url
+from . import watchlist as watchlist_mgr
 from .analyzer import RepoTraceAnalyzer
 from .storage import list_investigations, read_investigation, save_investigation
 from .usage import usage_manager, enforce_or_429
@@ -148,6 +150,24 @@ class AuthLoginRequest(BaseModel):
     password: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: str
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+
+class OtpVerifyRequest(BaseModel):
+    email: str
+    code: str
+
+
+class OtpResendRequest(BaseModel):
+    email: str
+
+
 class ReportAbuseRequest(BaseModel):
     kind: str = Field("repo", pattern="^(repo|user|org)$")
     target_url: str
@@ -188,6 +208,15 @@ class WatchRequest(BaseModel):
     test_email: bool = False
 
 
+class WatchActionRequest(BaseModel):
+    watch_id: str
+
+
+class WatchIntervalRequest(BaseModel):
+    watch_id: str
+    interval_min: int = Field(360, ge=30, le=10080)
+
+
 # --------------------------------------------------------------------------- pages / health
 
 @app.get("/")
@@ -225,7 +254,27 @@ async def auth_login(payload: AuthLoginRequest):
     try:
         return await auth_manager.login(payload.email, payload.password)
     except ValueError as e:
+        if str(e) == "EMAIL_NOT_VERIFIED":
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "email_not_verified",
+                        "message": "Please verify your account first. Check your email for the code, or resend it.",
+                        "email": payload.email.strip().lower()},
+            )
         raise HTTPException(status_code=401, detail=str(e))
+
+
+@app.post("/api/auth/verify-otp")
+async def auth_verify_otp(payload: OtpVerifyRequest):
+    try:
+        return await auth_manager.verify_otp(payload.email, payload.code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/auth/resend-otp")
+async def auth_resend_otp(payload: OtpResendRequest):
+    return await auth_manager.resend_otp(payload.email)
 
 
 @app.post("/api/auth/logout")
@@ -236,6 +285,19 @@ async def auth_logout(request: Request):
 @app.get("/api/auth/status")
 async def auth_status(request: Request):
     return await auth_manager.status(_session(request))
+
+
+@app.post("/api/auth/forgot-password")
+async def auth_forgot_password(payload: PasswordResetRequest, request: Request):
+    return await auth_manager.request_password_reset(payload.email, request_ip=client_ip(request))
+
+
+@app.post("/api/auth/reset-password")
+async def auth_reset_password(payload: PasswordResetConfirm):
+    try:
+        return await auth_manager.confirm_password_reset(payload.token, payload.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # --------------------------------------------------------------------------- usage / admin
@@ -334,8 +396,18 @@ async def analyze(payload: AnalyzeRequest, request: Request):
     await enforce_or_429(request, units=1, endpoint="scan")
     try:
         analyzer = await _analyzer_for(request)
-        target = parse_github_url(payload.url)
+        # Release-asset / asset-CDN / mirror URLs are traced back to their source
+        # repository so they analyze like any normal repo.
+        provenance = None
+        resolved = await resolve_to_repo_url(payload.url, analyzer.gh)
+        url_to_parse = payload.url
+        if resolved:
+            url_to_parse = resolved.repo_url
+            provenance = resolved.provenance
+        target = parse_github_url(url_to_parse)
         result = await analyzer.analyze(target, max_files=payload.max_files, max_commits=payload.max_commits)
+        if provenance:
+            result["source_provenance"] = provenance
         await usage_manager.record(request, units=1, endpoint="scan")
         await auth_manager.record_user_search(_session(request), units=1)
         return result
@@ -439,6 +511,55 @@ async def watch(payload: WatchRequest, request: Request):
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=scrub_error(e))
+
+
+async def _require_user(request: Request) -> dict:
+    user = await auth_manager.user_from_session(_session(request))
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required to manage your watchlist.")
+    return user
+
+
+@app.get("/api/watchlist")
+async def watchlist_list(request: Request):
+    user = await _require_user(request)
+    return {"watches": await watchlist_mgr.list_watches(user["email"])}
+
+
+@app.post("/api/watchlist/pause")
+async def watchlist_pause(payload: WatchActionRequest, request: Request):
+    user = await _require_user(request)
+    try:
+        return await watchlist_mgr.set_enabled(user["email"], payload.watch_id, False)
+    except PermissionError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/watchlist/resume")
+async def watchlist_resume(payload: WatchActionRequest, request: Request):
+    user = await _require_user(request)
+    try:
+        return await watchlist_mgr.set_enabled(user["email"], payload.watch_id, True)
+    except PermissionError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/watchlist/interval")
+async def watchlist_interval(payload: WatchIntervalRequest, request: Request):
+    user = await _require_user(request)
+    try:
+        return await watchlist_mgr.set_interval(user["email"], payload.watch_id, payload.interval_min)
+    except PermissionError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/watchlist/delete")
+async def watchlist_delete(payload: WatchActionRequest, request: Request):
+    user = await _require_user(request)
+    try:
+        return await watchlist_mgr.delete_watch(user["email"], payload.watch_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # --------------------------------------------------------------------------- reports

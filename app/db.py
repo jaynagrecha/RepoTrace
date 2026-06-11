@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
     github_token_fingerprint TEXT DEFAULT '',
     paid_credits            INTEGER NOT NULL DEFAULT 0,
     searches                INTEGER NOT NULL DEFAULT 0,
+    email_verified          INTEGER NOT NULL DEFAULT 0,
     created_at              TEXT NOT NULL,
     last_login              TEXT
 );
@@ -143,7 +144,25 @@ CREATE TABLE IF NOT EXISTS investigations (
     updated_at  TEXT NOT NULL,
     payload     TEXT NOT NULL    -- JSON
 );
-CREATE INDEX IF NOT EXISTS idx_investigations_created ON investigations(created_at DESC);
+CREATE TABLE IF NOT EXISTS email_otps (
+    email       TEXT PRIMARY KEY,
+    code_hash   TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    last_sent   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash  TEXT PRIMARY KEY,
+    email       TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    used        INTEGER NOT NULL DEFAULT 0,
+    request_ip  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_resets(expires_at);
 """
 
 
@@ -161,7 +180,20 @@ class Database:
         await self._conn.execute("PRAGMA foreign_keys=ON;")
         await self._conn.execute("PRAGMA busy_timeout=5000;")
         await self._conn.executescript(SCHEMA)
+        await self._migrate()
         await self._conn.commit()
+
+    async def _migrate(self) -> None:
+        """Idempotent migrations for databases created before a column existed."""
+        # email_verified added for OTP verification.
+        cur = await self._conn.execute("PRAGMA table_info(users)")
+        cols = {row[1] for row in await cur.fetchall()}
+        if "email_verified" not in cols:
+            # Existing accounts predate verification; treat them as verified so
+            # we don't lock out users who registered before this feature.
+            await self._conn.execute(
+                "ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1"
+            )
 
     async def close(self) -> None:
         if self._conn:
