@@ -408,8 +408,9 @@ async def analyze(payload: AnalyzeRequest, request: Request):
         result = await analyzer.analyze(target, max_files=payload.max_files, max_commits=payload.max_commits)
         if provenance:
             result["source_provenance"] = provenance
-        await usage_manager.record(request, units=1, endpoint="scan")
+        usage_after = await usage_manager.record(request, units=1, endpoint="scan")
         await auth_manager.record_user_search(_session(request), units=1)
+        result["usage"] = usage_after
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=scrub_error(e))
@@ -425,7 +426,8 @@ async def bulk_scan(payload: BulkScanRequest, request: Request):
         analyzer = await _analyzer_for(request)
         result = await analyzer.bulk_scan(payload.urls, max_files=payload.max_files,
                                           max_commits=payload.max_commits, concurrency=payload.concurrency)
-        await usage_manager.record(request, units=units, endpoint="bulk")
+        usage_after = await usage_manager.record(request, units=units, endpoint="bulk")
+        result["usage"] = usage_after
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=scrub_error(e))

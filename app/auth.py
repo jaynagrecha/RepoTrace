@@ -76,6 +76,14 @@ class AuthManager:
         email = (email or "").strip().lower()
         if "@" not in email or len(email) < 6:
             raise ValueError("A valid organization/work email is required.")
+        from .email_domains import is_free_email_domain
+        if is_free_email_domain(email):
+            raise ValueError(
+                "Please register with your work/organization email. Free email "
+                "providers (Gmail, Outlook, Yahoo, etc.) aren't eligible for an "
+                "organization account. You can still use RepoTrace without an "
+                "account on the free tier."
+            )
         if not password or len(password) < 8:
             raise ValueError("Password must be at least 8 characters.")
         existing = await db.fetchone("SELECT email FROM users WHERE email = ?", (email,))

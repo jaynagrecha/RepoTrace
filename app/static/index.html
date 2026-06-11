@@ -485,9 +485,25 @@ checkAuthStatus();
 maybeShowReset();
 
 async function tokenStatus(){try{const r=await fetch('/api/token-status',{headers:userSessionHeaders()});const d=await r.json();let t=d.github_token_configured?'GitHub token configured':'No GitHub token';let rl=d.rate_limit?` · ${d.rate_limit.remaining}/${d.rate_limit.limit}`:'';let gl=d.gitlab_token_configured?' · GitLab token configured':' · GitLab public mode';document.getElementById('token').textContent=t+rl+gl}catch(e){document.getElementById('token').textContent='Token check failed'}} tokenStatus();
+let _usageSeq=0;
 async function refreshUsage(){
+  const seq=++_usageSeq;
   try{
     const r=await fetch('/api/usage-status',{headers:adminFetchHeaders()}); const d=await r.json();
+    // Ignore this response if a newer refreshUsage call has since started —
+    // prevents an older in-flight request from overwriting a fresher count.
+    if(seq!==_usageSeq) return;
+    renderUsage(d);
+  }catch(e){document.getElementById('usagePanel').innerHTML='<span class="bad">Usage status failed</span>'}
+}
+// Render the usage/payment panels from an authoritative status object. Scan
+// endpoints return the exact post-scan usage in result.usage, so we render that
+// directly — no separate fetch that could arrive out of order.
+function renderUsage(d){
+  if(!d) return;
+  // Mark this as the freshest state so any in-flight refreshUsage fetch from
+  // before the scan is discarded when it returns.
+  _usageSeq++;
     const isAdmin=!!d.admin_authenticated;
     const isOrgUnlimited=!!d.org_unlimited || d.access_mode==='org_unlimited';
     const rem=isAdmin?'Unlimited (Admin)':(isOrgUnlimited?'Unlimited (Org)':(d.public_mode?`${d.remaining_today}/${d.free_searches_per_day}`:'unlimited'));
@@ -509,7 +525,6 @@ async function refreshUsage(){
     const modeBadge=(pay.razorpay_mode||pay.mode||'test').toUpperCase();
     const liveWarning=(pay.razorpay_live_mode||pay.live_mode)?'<span class="ok">LIVE MODE</span>':'<span class="warn">TEST MODE</span>';
     document.getElementById('paymentPanel').innerHTML=`<h4>Payment</h4><div class="kv"><b>Provider</b><span class="mono">${esc(pay.provider||'razorpay')}</span></div><div class="kv"><b>Mode</b><span>${liveWarning} <span class="pill">${esc(modeBadge)}</span></span></div><div class="kv"><b>Status</b><span>${pay.razorpay_configured?'<span class="ok">Razorpay configured</span>':'<span class="warn">Razorpay not configured; UPI fallback only</span>'}</span></div><div class="kv"><b>Webhook</b><span>${pay.razorpay_webhook_configured||pay.webhook_configured?'<span class="ok">Configured</span>':'<span class="warn">Not configured</span>'}</span></div><div class="kv"><b>UPI ID</b><span class="mono">${esc(pay.upi_id||'Optional fallback not configured')}</span></div><div class="kv"><b>Price</b><span>₹${amount} per extra search</span></div><div class="muted small" style="margin-top:8px">${esc(pay.note||'Verified payment unlocks one extra search automatically.')}</div>${payButton}`;
-  }catch(e){document.getElementById('usagePanel').innerHTML='<span class="bad">Usage status failed</span>'}
 }
 function paywallHtml(err){
   const amount=(lastUsagePayment?.price_per_search_inr)||'2';
@@ -730,7 +745,7 @@ function openGitHubReportHelp(){
 }
 
 
-async function analyze(){const url=document.getElementById('url').value.trim();document.getElementById('results').classList.remove('hidden');document.getElementById('status').innerHTML='<span class="loader">Analyzing…</span>';showScanSkeleton();try{lastData=await post('/api/analyze',{url,max_files:+maxFiles.value,max_commits:+maxCommits.value});render(lastData);document.getElementById('status').innerHTML='<span class="ok">Done.</span>';document.getElementById('results')?.scrollIntoView({behavior:'smooth'});tokenStatus()}catch(e){if(e.status===429){pendingPaidRetry=analyze;document.getElementById('status').innerHTML=paywallHtml(e)}else{document.getElementById('status').innerHTML=`<span class="bad">${esc(e.message)}</span>`}document.getElementById('dashboard').innerHTML=''}}
+async function analyze(){const url=document.getElementById('url').value.trim();document.getElementById('results').classList.remove('hidden');document.getElementById('status').innerHTML='<span class="loader">Analyzing…</span>';showScanSkeleton();try{lastData=await post('/api/analyze',{url,max_files:+maxFiles.value,max_commits:+maxCommits.value});render(lastData);document.getElementById('status').innerHTML='<span class="ok">Done.</span>';document.getElementById('results')?.scrollIntoView({behavior:'smooth'});if(lastData.usage)renderUsage(lastData.usage);else await refreshUsage();tokenStatus()}catch(e){if(e.status===429){pendingPaidRetry=analyze;document.getElementById('status').innerHTML=paywallHtml(e)}else{document.getElementById('status').innerHTML=`<span class="bad">${esc(e.message)}</span>`}document.getElementById('dashboard').innerHTML=''}}
 function showScanSkeleton(){
   const sk=n=>Array.from({length:n}).map(()=>'<div class="skeleton"></div>').join('');
   document.getElementById('dashboard').innerHTML='<div class="dash">'+Array.from({length:5}).map(()=>'<div class="metric"><div class="skeleton med"></div></div>').join('')+'</div>';
@@ -1115,6 +1130,7 @@ async function bulkScan(){
     <h4>Repository Results</h4><div id="bulkRepoTable"></div>`;
     renderInfraGraph(r.graph || buildGraphPairs(links));
     renderBulkRepoTable(r.results||[],null);
+    if(r.usage)renderUsage(r.usage);else await refreshUsage();
   }catch(e){if(e.status===429){pendingPaidRetry=bulkScan;out.innerHTML=paywallHtml(e)}else{out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}}
 }
 async function saveInvestigation(){
