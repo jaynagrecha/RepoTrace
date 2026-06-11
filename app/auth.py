@@ -84,6 +84,8 @@ class AuthManager:
                 "organization account. You can still use RepoTrace without an "
                 "account on the free tier."
             )
+        if not (org_name or "").strip():
+            raise ValueError("Organization name is required to register.")
         if not password or len(password) < 8:
             raise ValueError("Password must be at least 8 characters.")
         existing = await db.fetchone("SELECT email FROM users WHERE email = ?", (email,))

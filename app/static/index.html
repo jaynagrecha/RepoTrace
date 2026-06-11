@@ -60,12 +60,12 @@ tr.hidden-row{display:none}
   <div class="card collapsed" id="accountBillingWrap">
     <div class="collapse-head" onclick="document.getElementById('accountBillingWrap').classList.toggle('collapsed')">
       <h3 style="margin:0">Account &amp; Billing</h3>
-      <span class="muted small">Login/Register · payments · admin <span class="chev">▾</span></span>
+      <span class="muted small">Login · org token routing · usage limits · payments · admin <span class="chev">▾</span></span>
     </div>
     <div class="collapse-body">
   <div class="card" id="accountPanel">
-    <div class="section-title"><h3>Enterprise / Org Login</h3><span class="pill">server-side org token routing</span></div>
-    <p class="muted small">Enterprise users can register/login with an organization email. If RepoTrace has a server-side token configured for that email domain, logged-in scans will use that org token instead of the public RepoTrace token.</p>
+    <div class="section-title"><h3>Enterprise / Org Login</h3><span class="pill">optional · server-side org token routing</span></div>
+    <p class="muted small">Enterprise users can register/login with an organization email. If RepoTrace has a server-side token configured for that email domain, logged-in scans use that org token instead of the public RepoTrace token. Users do not need to paste GitHub secrets into the browser.</p>
     <div class="grid">
       <div class="ioc-card">
         <h4>Login</h4>
@@ -78,7 +78,7 @@ tr.hidden-row{display:none}
       <div class="ioc-card">
         <h4>Create Account</h4>
         <input id="regEmail" placeholder="name@company.com" style="width:100%;margin-bottom:8px"/>
-        <input id="regOrg" placeholder="Organization name" style="width:100%;margin-bottom:8px"/>
+        <input id="regOrg" placeholder="Organization name (required)" style="width:100%;margin-bottom:8px"/>
         <input id="regPassword" type="password" placeholder="password, min 8 chars" style="width:100%;margin-bottom:8px"/>
         <button onclick="registerUser()">Register</button>
         <div id="otpBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
@@ -165,7 +165,7 @@ https://gitlab.com/group/project"></textarea>
     <div class="grid">
       <div>
         <h4>GitHub User / Org Scanner</h4>
-        <p class="muted small">Scan public repositories for a GitHub user or organization and rank them by risk.</p>
+        <p class="muted small">Scan public repositories for a GitHub user or organization and rank them by risk. This stays RepoTrace-only: repo intelligence, not payload triage.</p>
         <div class="bulkrow">
           <input id="acctName" placeholder="user or org, e.g. socketio" />
           <input id="acctMaxRepos" type="number" value="30" min="1" max="200" title="Max repos"/>
@@ -395,7 +395,9 @@ async function post(url,body){
 }
 
 async function registerUser(){
-  const body={email:regEmail.value.trim(), password:regPassword.value, org_name:regOrg.value.trim()};
+  const org=regOrg.value.trim();
+  if(!org){authOut.innerHTML='<span class="bad">Organization name is required to register.</span>';return;}
+  const body={email:regEmail.value.trim(), password:regPassword.value, org_name:org};
   try{
     const d=await post('/api/auth/register',body);
     window._otpEmail=d.email;
@@ -522,9 +524,9 @@ function renderUsage(d){
     lastUsagePayment=pay;
     const amount=esc(pay.price_per_search_inr||'2');
     const payButton=`<div style="margin-top:12px"><a class="pay-search-btn" onclick="openPaymentModal(${amount})">Search ₹${amount}</a></div>`;
-    const modeBadge=(pay.razorpay_mode||pay.mode||'test').toUpperCase();
-    const liveWarning=(pay.razorpay_live_mode||pay.live_mode)?'<span class="ok">LIVE MODE</span>':'<span class="warn">TEST MODE</span>';
-    document.getElementById('paymentPanel').innerHTML=`<h4>Payment</h4><div class="kv"><b>Provider</b><span class="mono">${esc(pay.provider||'razorpay')}</span></div><div class="kv"><b>Mode</b><span>${liveWarning} <span class="pill">${esc(modeBadge)}</span></span></div><div class="kv"><b>Status</b><span>${pay.razorpay_configured?'<span class="ok">Razorpay configured</span>':'<span class="warn">Razorpay not configured; UPI fallback only</span>'}</span></div><div class="kv"><b>Webhook</b><span>${pay.razorpay_webhook_configured||pay.webhook_configured?'<span class="ok">Configured</span>':'<span class="warn">Not configured</span>'}</span></div><div class="kv"><b>UPI ID</b><span class="mono">${esc(pay.upi_id||'Optional fallback not configured')}</span></div><div class="kv"><b>Price</b><span>₹${amount} per extra search</span></div><div class="muted small" style="margin-top:8px">${esc(pay.note||'Verified payment unlocks one extra search automatically.')}</div>${payButton}`;
+    const isLive=!!(pay.razorpay_live_mode||pay.live_mode)||String(pay.razorpay_mode||pay.mode||'').toLowerCase()==='live';
+    const payModeLabel=isLive?'<span class="ok">LIVE MODE</span>':'<span class="warn">TEST MODE</span>';
+    document.getElementById('paymentPanel').innerHTML=`<h4>Payment</h4><div class="kv"><b>Provider</b><span class="mono">${esc(pay.provider||'razorpay')}</span></div><div class="kv"><b>Mode</b><span>${payModeLabel}</span></div><div class="kv"><b>Status</b><span>${pay.razorpay_configured?'<span class="ok">Razorpay configured</span>':'<span class="warn">Razorpay not configured; UPI fallback only</span>'}</span></div><div class="kv"><b>UPI ID</b><span class="mono">${esc(pay.upi_id||'Optional fallback not configured')}</span></div><div class="kv"><b>Price</b><span>₹${amount} per extra search</span></div><div class="muted small" style="margin-top:8px">${esc(pay.note||'Verified payment unlocks one extra search automatically.')}</div>${payButton}`;
 }
 function paywallHtml(err){
   const amount=(lastUsagePayment?.price_per_search_inr)||'2';
@@ -1143,7 +1145,7 @@ async function listInvestigations(){
   try{const r=await fetch('/api/investigations').then(x=>x.json());const items=r.investigations||[];out.innerHTML=items.length?`<table><tr><th>ID</th><th>Title</th><th>Created</th><th>Open</th></tr>${items.map(i=>`<tr><td class="mono small">${esc(i.id)}</td><td>${esc(i.title)}</td><td>${esc(shortDate(i.created_at))}</td><td><button class="secondary" onclick="loadInvestigation('${esc(i.id)}')">Load</button></td></tr>`).join('')}</table>`:'<div class="empty">No saved investigations yet.</div>'}catch(e){out.innerHTML=`<span class="bad">${esc(e.message)}</span>`}
 }
 async function loadInvestigation(id){
-  try{const d=await fetch('/api/investigations/'+encodeURIComponent(id)).then(x=>x.json());lastData=d.result||d;document.getElementById('results').classList.remove('hidden');render(lastData);window.scrollTo({top:0,behavior:'smooth'})}catch(e){alert('Load failed: '+e.message)}
+  try{const d=await fetch('/api/investigations/'+encodeURIComponent(id)).then(x=>x.json());lastData=d.payload||d.result||d;document.getElementById('results').classList.remove('hidden');render(lastData);window.scrollTo({top:0,behavior:'smooth'})}catch(e){alert('Load failed: '+e.message)}
 }
 
 async function compareRepos(){

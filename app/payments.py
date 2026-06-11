@@ -148,12 +148,19 @@ class PaymentManager:
             (order["id"], receipt, identity, ip, units, payload["amount"], "INR",
              "created", self.mode, int(time.time()), json.dumps(order)),
         )
+        # No prefill: each payer enters their own phone/email at checkout.
+        # (Prefilling would otherwise show the operator's contact to everyone.)
+        prefill: dict[str, str] = {}
+        if os.getenv("PAYMENT_PREFILL_EMAIL") or os.getenv("PAYMENT_PREFILL_CONTACT"):
+            # Only prefill if explicitly opted in; off by default for public use.
+            if os.getenv("PAYMENT_PREFILL_ENABLE", "false").strip().lower() in {"1", "true", "yes", "on"}:
+                prefill = {"email": os.getenv("PAYMENT_PREFILL_EMAIL", ""), "contact": os.getenv("PAYMENT_PREFILL_CONTACT", "")}
         return {
             "provider": "razorpay", "key_id": self.key_id, "order_id": order["id"],
             "amount": payload["amount"], "amount_inr": payload["amount"] / 100, "currency": "INR",
             "name": os.getenv("UPI_NAME", "RepoTrace"), "description": f"RepoTrace search credit x {units}",
             "units": units, "mode": self.mode, "live_mode": self.live_mode, "upi_first": self.upi_first,
-            "prefill": {"email": os.getenv("PAYMENT_PREFILL_EMAIL", ""), "contact": os.getenv("PAYMENT_PREFILL_CONTACT", "")},
+            "prefill": prefill,
         }
 
     def _verify_checkout_signature(self, order_id: str, payment_id: str, signature: str) -> bool:
