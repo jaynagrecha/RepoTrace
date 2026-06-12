@@ -196,9 +196,6 @@ https://gitlab.com/group/project"></textarea>
           <input id="watchConc" type="number" value="3" min="1" max="6" title="Concurrency"/>
           <button onclick="watchTarget()">Run Watch</button>
         </div>
-        <label class="muted small" style="display:flex;align-items:center;gap:7px;margin-top:8px;cursor:pointer">
-          <input type="checkbox" id="watchTestEmail" style="width:auto"/> Send a test email on this run (verifies SMTP even with no changes)
-        </label>
       </div>
     </div>
     <div id="radarOut" style="margin-top:14px"></div>
@@ -612,6 +609,10 @@ function launchRazorpayCurrent(){
     description:d.description||'RepoTrace search credit',
     order_id:d.order_id,
     prefill:d.prefill||{},
+    // Don't lean on Razorpay's remembered-customer session ("Using as +91…");
+    // each payer should enter their own contact details fresh.
+    remember_customer:false,
+    readonly:{},
     method:{upi:true,card:true,netbanking:true,wallet:true},
     config:{
       display:{
@@ -1264,8 +1265,7 @@ async function watchTarget(){
       max_repos:+document.getElementById('watchMaxRepos').value,
       max_files:70,
       max_commits:30,
-      concurrency:+document.getElementById('watchConc').value,
-      test_email:document.getElementById('watchTestEmail').checked
+      concurrency:+document.getElementById('watchConc').value
     });
     renderWatch(d);
     loadWatchlist();
